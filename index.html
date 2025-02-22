@@ -23,7 +23,7 @@
             const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
                 width: window.innerWidth,
                 height: window.innerHeight,
-                layout: { background: { color: '#ffffff' }, textColor: 'black' },
+                layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' }, // Grok-like background and text
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: true }
             });
@@ -37,7 +37,6 @@
             const barsPerCall = 2000; // Max per request
             let allBars = [];
 
-            // Fetch max historical data (~83 hours)
             async function fetchHistorical(segment) {
                 const now = Math.floor(Date.now() / 1000);
                 const toTs = now - (segment * barsPerCall * barInterval);
