@@ -89,6 +89,7 @@
                 currentPrice: 0
             };
 
+            // Array to store liquidation events
             let liquidations = [];
 
             function updateStats() {
@@ -114,6 +115,7 @@
                 document.getElementById('liq-volume').textContent = `$${(stats.liqVolume24h / 1000000).toFixed(2)}M`;
                 document.getElementById('largest-liq').textContent = `$${(stats.largestLiq / 1000000).toFixed(2)}M`;
             }
+
 
             try {
                 // Properly reference the library
@@ -147,14 +149,17 @@
                     wickDownColor: '#ef5350'
                 });
 
+                // Use scatter series for liquidation markers
                 const longLiqSeries = chart.addScatterSeries({
-                    color: 'rgba(255, 0, 0, 0.7)',
-                    radius: 2,
+                    color: 'rgba(255, 0, 0, 0.7)', // Red with some transparency
+                    radius: 2,        // Adjust the size as needed
                 });
+
                 const shortLiqSeries = chart.addScatterSeries({
-                    color: 'rgba(0, 255, 0, 0.7)',
-                    radius: 2,
+                    color: 'rgba(0, 255, 0, 0.7)', // Green with some transparency
+                    radius: 2         // Adjust the size as needed
                 });
+
 
                 console.log('Fetching historical data...');
                 const response = await fetch('https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=2000&aggregate=5');
@@ -242,6 +247,7 @@
                     }));
                 };
 
+                // WebSocket error handling
                 bybitWs.onerror = (error) => {
                     console.error('Bybit WebSocket error:', error);
                 };
@@ -260,6 +266,7 @@
                         const side = liquidation.side;
                         const timestamp = Math.floor(Date.now() / 1000);
 
+                        // Add liquidation event to the array
                         liquidations.push({
                             time: timestamp,
                             price: price,
@@ -269,6 +276,7 @@
 
                         updateStats();
 
+                        // Add marker to the appropriate scatter series
                         if (side === 'Buy') {
                             longLiqSeries.setData([...longLiqSeries.seriesApi.options().data, { time: timestamp, price: price }]);
                         } else {
