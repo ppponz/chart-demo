@@ -64,6 +64,9 @@
         </div>
     </div>
     <script>
+        // Disable ethereum provider injection from MetaMask
+        window.ethereum = undefined;
+        
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('DOM loaded, initializing chart...');
             
@@ -88,7 +91,8 @@
             }
 
             try {
-                const chart = createChart(container, {
+                // Properly reference the library
+                const chart = LightweightCharts.createChart(container, {
                     width: container.clientWidth,
                     height: container.clientHeight,
                     layout: {
