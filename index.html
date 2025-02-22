@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>My TradingView Chart</title>
+    <title>My Real-Time TradingView Chart</title>
     <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { margin: 0; }
@@ -11,6 +11,7 @@
 <body>
     <div id="chart-container"></div>
     <script>
+        // Initialize the chart
         window.onload = function() {
             const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
                 width: window.innerWidth,
@@ -20,14 +21,50 @@
             });
 
             const lineSeries = chart.addLineSeries({ color: '#2962FF' });
-            lineSeries.setData([
-                { time: '2025-01-01', value: 50 },
-                { time: '2025-01-02', value: 55 },
-                { time: '2025-01-03', value: 53 },
-                { time: '2025-01-04', value: 60 },
-                { time: '2025-01-05', value: 58 }
-            ]);
 
+            // Function to fetch data from Alpha Vantage
+            function fetchData() {
+                const apiKey = 'Z2PXUHQTGEY5AP73'; // Replace with your Alpha Vantage API key
+                const symbol = 'AAPL'; // Stock symbol (e.g., AAPL for Apple)
+                const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=1min&apikey=${apiKey}&outputsize=compact`;
+
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        const timeSeries = data['Time Series (1min)'];
+                        if (!timeSeries) {
+                            console.error('No data returned. Check API key or symbol.');
+                            return;
+                        }
+
+                        // Convert API data to chart format
+                        const chartData = Object.keys(timeSeries).map(time => {
+                            const price = parseFloat(timeSeries[time]['4. close']);
+                            const date = time.split(' ')[0]; // Extract just the date (e.g., '2025-02-22')
+                            return { time: date, value: price };
+                        }).reverse(); // Oldest to newest
+
+                        // Set initial data (first load) or update with latest point
+                        if (lineSeries.data().length === 0) {
+                            lineSeries.setData(chartData);
+                        } else {
+                            const latestPoint = chartData[chartData.length - 1];
+                            lineSeries.update(latestPoint); // Add only the newest point
+                        }
+
+                        // Auto-scroll to the latest data
+                        chart.timeScale().scrollToRealTime();
+                    })
+                    .catch(error => console.error('Error fetching data:', error));
+            }
+
+            // Fetch data initially
+            fetchData();
+
+            // Fetch new data every 60 seconds
+            setInterval(fetchData, 60000);
+
+            // Resize chart when window resizes
             window.addEventListener('resize', () => {
                 chart.resize(window.innerWidth, window.innerHeight);
             });
