@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Advanced BTC/USD Chart with Liquidations</title>
-    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <title>BTC/USD Chart with Liquidations</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/3.8.0/lightweight-charts.standalone.production.min.js"></script>
     <style>
         body { 
             margin: 0; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         #chart-container { 
             width: 100%; 
@@ -35,62 +35,14 @@
             font-size: 1.2em;
             font-weight: bold;
         }
-        .tooltip {
-            position: absolute;
-            display: none;
-            padding: 8px;
-            box-sizing: border-box;
-            font-size: 12px;
-            color: #fff;
-            background-color: rgba(0, 0, 0, 0.8);
-            border-radius: 4px;
-            pointer-events: none;
-            z-index: 1000;
-        }
-        .legend {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background-color: rgba(30, 30, 30, 0.9);
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #D3D3D3;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin: 5px 0;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            margin-right: 8px;
-            border-radius: 2px;
-        }
     </style>
 </head>
 <body>
-    <div class="tooltip" id="tooltip"></div>
-    <div class="legend">
-        <div class="legend-item">
-            <div class="legend-color" style="background: #2962FF"></div>
-            <span>Price Bars</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: rgba(255, 0, 0, 0.5)"></div>
-            <span>Long Liquidations</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: rgba(0, 255, 0, 0.5)"></div>
-            <span>Short Liquidations</span>
-        </div>
-    </div>
     <div id="chart-container"></div>
     <div id="stats-container">
         <div class="stat-box">
-            <div class="stat-label">24h Volume</div>
-            <div class="stat-value" id="volume">$0</div>
+            <div class="stat-label">BTC Price</div>
+            <div class="stat-value" id="price">$0</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">24h Liq. Count</div>
@@ -104,22 +56,26 @@
             <div class="stat-label">Largest Liq.</div>
             <div class="stat-value" id="largest-liq">$0</div>
         </div>
-        <div class="stat-box">
-            <div class="stat-label">Price Change 24h</div>
-            <div class="stat-value" id="price-change">0%</div>
-        </div>
     </div>
     <script>
         window.onload = async function() {
-            // Statistics tracking
+            let currentBar = null;
+            const barInterval = 300; // 5 minutes
+            
+            // Stats tracking
             const stats = {
-                volume24h: 0,
                 liqCount24h: 0,
                 liqVolume24h: 0,
                 largestLiq: 0,
-                startPrice: 0,
                 currentPrice: 0
             };
+
+            function updateStats() {
+                document.getElementById('price').textContent = `$${stats.currentPrice.toFixed(2)}`;
+                document.getElementById('liq-count').textContent = stats.liqCount24h;
+                document.getElementById('liq-volume').textContent = `$${(stats.liqVolume24h/1000000).toFixed(2)}M`;
+                document.getElementById('largest-liq').textContent = `$${(stats.largestLiq/1000000).toFixed(2)}M`;
+            }
 
             const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
                 width: window.innerWidth,
@@ -129,80 +85,21 @@
                     textColor: '#D3D3D3'
                 },
                 grid: {
-                    vertLines: { color: '#2A2A2A' },
-                    horzLines: { color: '#2A2A2A' }
-                },
-                crosshair: {
-                    mode: LightweightCharts.CrosshairMode.Normal,
-                    vertLine: {
-                        width: 1,
-                        color: '#758696',
-                        style: LightweightCharts.LineStyle.Dashed,
-                    },
-                    horzLine: {
-                        width: 1,
-                        color: '#758696',
-                        style: LightweightCharts.LineStyle.Dashed,
-                    }
+                    vertLines: { visible: false },
+                    horzLines: { visible: false }
                 },
                 timeScale: {
                     timeVisible: true,
-                    secondsVisible: false,
-                    borderColor: '#2A2A2A'
-                },
-                rightPriceScale: {
-                    borderColor: '#2A2A2A'
+                    secondsVisible: false
                 }
             });
 
-            const barSeries = chart.addBarSeries({
+            const barSeries = chart.addBarSeries({ 
                 upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderVisible: false,
-                wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350'
+                downColor: '#ef5350'
             });
 
-            // Add volume series
-            const volumeSeries = chart.addHistogramSeries({
-                color: '#26a69a',
-                priceFormat: {
-                    type: 'volume',
-                },
-                priceScaleId: '', // Set as an overlay
-                scaleMargins: {
-                    top: 0.8,
-                    bottom: 0,
-                },
-            });
-
-            // Tooltip handling
-            const tooltip = document.getElementById('tooltip');
-            chart.subscribeCrosshairMove(param => {
-                if (param.point === undefined || !param.time || param.point.x < 0 || param.point.x > chart.clientWidth || param.point.y < 0 || param.point.y > chart.clientHeight) {
-                    tooltip.style.display = 'none';
-                } else {
-                    const data = param.seriesData.get(barSeries);
-                    if (data) {
-                        const dateStr = new Date(param.time * 1000).toLocaleString();
-                        tooltip.style.display = 'block';
-                        const price = data.close;
-                        const volume = param.seriesData.get(volumeSeries);
-                        tooltip.style.left = param.point.x + 'px';
-                        tooltip.style.top = param.point.y + 'px';
-                        tooltip.innerHTML = `
-                            <div>Date: ${dateStr}</div>
-                            <div>Open: $${data.open.toFixed(2)}</div>
-                            <div>High: $${data.high.toFixed(2)}</div>
-                            <div>Low: $${data.low.toFixed(2)}</div>
-                            <div>Close: $${data.close.toFixed(2)}</div>
-                            ${volume ? `<div>Volume: $${(volume.value / 1000000).toFixed(2)}M</div>` : ''}
-                        `;
-                    }
-                }
-            });
-
-            // Marker series for liquidations with size representation
+            // Series for liquidations
             const longLiqSeries = chart.addCandlestickSeries({
                 upColor: 'rgba(255, 0, 0, 0)',
                 downColor: 'rgba(255, 0, 0, 0.5)',
@@ -217,43 +114,11 @@
                 wickVisible: false
             });
 
-            // WebSocket connection management
-            function createWebSocket(url, options) {
-                const ws = new WebSocket(url);
-                let reconnectTimeout;
-
-                ws.onopen = () => {
-                    console.log(`Connected to ${url}`);
-                    if (options.onOpen) options.onOpen(ws);
-                    clearTimeout(reconnectTimeout);
-                };
-
-                ws.onclose = () => {
-                    console.log(`Disconnected from ${url}`);
-                    reconnectTimeout = setTimeout(() => {
-                        console.log(`Reconnecting to ${url}...`);
-                        createWebSocket(url, options);
-                    }, 5000);
-                };
-
-                ws.onerror = (error) => {
-                    console.error(`WebSocket error for ${url}:`, error);
-                };
-
-                ws.onmessage = options.onMessage;
-
-                return ws;
-            }
-
             // Fetch historical data
-            async function fetchHistoricalData() {
-                const url = 'https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=2000&aggregate=5';
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error('Fetch failed');
-                    const data = await response.json();
-                    if (!data.Data || !data.Data.Data) throw new Error('No data returned');
-                    
+            try {
+                const response = await fetch('https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=2000&aggregate=5');
+                const data = await response.json();
+                if (data.Data && data.Data.Data) {
                     const historicalBars = data.Data.Data.map(item => ({
                         time: item.time,
                         open: item.open,
@@ -261,126 +126,121 @@
                         low: item.low,
                         close: item.close
                     }));
-
-                    const volumeBars = data.Data.Data.map(item => ({
-                        time: item.time,
-                        value: item.volumeto,
-                        color: item.close >= item.open ? '#26a69a' : '#ef5350'
-                    }));
-
                     barSeries.setData(historicalBars);
-                    volumeSeries.setData(volumeBars);
-                    stats.startPrice = historicalBars[0].close;
                     stats.currentPrice = historicalBars[historicalBars.length - 1].close;
                     updateStats();
-                    
                     chart.timeScale().fitContent();
-                } catch (error) {
-                    console.error('Historical fetch error:', error);
                 }
+            } catch (error) {
+                console.error('Historical data fetch error:', error);
             }
 
-            await fetchHistoricalData();
+            // Coinbase WebSocket for price data
+            const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+            
+            coinbaseWs.onopen = () => {
+                console.log('Coinbase WebSocket connected');
+                coinbaseWs.send(JSON.stringify({
+                    type: 'subscribe',
+                    product_ids: ['BTC-USD'],
+                    channels: ['ticker']
+                }));
+            };
 
-            // Coinbase WebSocket
-            createWebSocket('wss://ws-feed.exchange.coinbase.com', {
-                onOpen: (ws) => {
-                    ws.send(JSON.stringify({
-                        type: 'subscribe',
-                        product_ids: ['BTC-USD'],
-                        channels: ['ticker']
-                    }));
-                },
-                onMessage: (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type !== 'ticker' || data.product_id !== 'BTC-USD') return;
+            coinbaseWs.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type !== 'ticker' || data.product_id !== 'BTC-USD') return;
 
-                    const price = parseFloat(data.price);
-                    const volume = parseFloat(data.volume_24h);
-                    stats.currentPrice = price;
-                    stats.volume24h = volume;
+                const price = parseFloat(data.price);
+                stats.currentPrice = price;
+                updateStats();
+
+                const timestamp = Math.floor(Date.now() / 1000);
+                const barTime = Math.floor(timestamp / barInterval) * barInterval;
+
+                if (!currentBar || currentBar.time !== barTime) {
+                    if (currentBar) {
+                        barSeries.update(currentBar);
+                    }
+                    currentBar = {
+                        time: barTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price
+                    };
+                } else {
+                    currentBar.high = Math.max(currentBar.high, price);
+                    currentBar.low = Math.min(currentBar.low, price);
+                    currentBar.close = price;
+                    barSeries.update(currentBar);
+                }
+
+                chart.timeScale().scrollToRealTime();
+            };
+
+            // Bybit WebSocket for liquidation data
+            const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
+            
+            bybitWs.onopen = () => {
+                console.log('Bybit WebSocket connected');
+                bybitWs.send(JSON.stringify({
+                    op: 'subscribe',
+                    args: ['liquidation.BTCUSDT']
+                }));
+            };
+
+            bybitWs.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.topic === 'liquidation.BTCUSDT' && data.data) {
+                    const liquidation = data.data;
+                    const price = parseFloat(liquidation.price);
+                    const size = parseFloat(liquidation.size);
+                    const side = liquidation.side;
+                    const timestamp = Math.floor(Date.now() / 1000);
+
+                    // Update liquidation statistics
+                    stats.liqCount24h++;
+                    const liqValue = size * price;
+                    stats.liqVolume24h += liqValue;
+                    stats.largestLiq = Math.max(stats.largestLiq, liqValue);
                     updateStats();
 
-                    const timestamp = Math.floor(Date.now() / 1000);
-                    const barTime = Math.floor(timestamp / 300) * 300;
+                    const marker = {
+                        time: timestamp,
+                        open: price,
+                        high: price * (1 + size/10000),
+                        low: price * (1 - size/10000),
+                        close: price
+                    };
 
-                    if (!currentBar || currentBar.time !== barTime) {
-                        if (currentBar) {
-                            barSeries.update(currentBar);
-                            volumeSeries.update({
-                                time: currentBar.time,
-                                value: volume,
-                                color: currentBar.close >= currentBar.open ? '#26a69a' : '#ef5350'
-                            });
-                        }
-                        currentBar = {
-                            time: barTime,
-                            open: price,
-                            high: price,
-                            low: price,
-                            close: price
-                        };
+                    if (side === 'Buy') {
+                        longLiqSeries.update(marker);
                     } else {
-                        currentBar.high = Math.max(currentBar.high, price);
-                        currentBar.low = Math.min(currentBar.low, price);
-                        currentBar.close = price;
-                        barSeries.update(currentBar);
-                        volumeSeries.update({
-                            time: currentBar.time,
-                            value: volume,
-                            color: currentBar.close >= currentBar.open ? '#26a69a' : '#ef5350'
-                        });
-                    }
-
-                    chart.timeScale().scrollToRealTime();
-                }
-            });
-
-            // Bybit WebSocket
-            createWebSocket('wss://stream.bybit.com/v5/public/linear', {
-                onOpen: (ws) => {
-                    ws.send(JSON.stringify({
-                        op: 'subscribe',
-                        args: ['liquidation.BTCUSDT']
-                    }));
-                },
-                onMessage: (event) => {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.topic === 'liquidation.BTCUSDT') {
-                        const liquidation = data.data;
-                        const price = parseFloat(liquidation.price);
-                        const size = parseFloat(liquidation.size);
-                        const side = liquidation.side;
-                        const timestamp = Math.floor(Date.now() / 1000);
-
-                        // Update liquidation statistics
-                        stats.liqCount24h++;
-                        stats.liqVolume24h += size * price;
-                        stats.largestLiq = Math.max(stats.largestLiq, size * price);
-                        updateStats();
-
-                        const marker = {
-                            time: timestamp,
-                            open: price,
-                            high: price * (1 + size/10000),  // Adjust marker size based on liquidation size
-                            low: price * (1 - size/10000),
-                            close: price
-                        };
-
-                        if (side === 'Buy') {
-                            longLiqSeries.update(marker);
-                        } else {
-                            shortLiqSeries.update(marker);
-                        }
+                        shortLiqSeries.update(marker);
                     }
                 }
-            });
+            };
 
-            // Update statistics display
-            function updateStats() {
-                document.getElementById('volume').textContent = `$${(stats.volume24h/1000000).toFixed(2)}M`;
-                document.getElementById('liq-count').textContent = stats.liqCount24h;
-                document.getElementById('liq-volume').textContent = `$${(stats.liqVolume24h/1000000).toFixed(2)}M`;
-                document.getElementById('largest-liq').textContent = `$${(stats.largestLiq/1000000).toFixed(2)}M`;
-                const priceChange = ((stats.currentPrice - stats.startPrice) / stats.startPrice * 100).toFixed(2
+            // Error handling
+            coinbaseWs.onerror = (error) => console.error('Coinbase WebSocket error:', error);
+            bybitWs.onerror = (error) => console.error('Bybit WebSocket error:', error);
+
+            // Auto-reconnect on close
+            coinbaseWs.onclose = () => {
+                console.log('Coinbase WebSocket closed, reconnecting...');
+                setTimeout(() => window.location.reload(), 5000);
+            };
+            bybitWs.onclose = () => {
+                console.log('Bybit WebSocket closed, reconnecting...');
+                setTimeout(() => window.location.reload(), 5000);
+            };
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                chart.resize(window.innerWidth, window.innerHeight * 0.9);
+            });
+        };
+    </script>
+</body>
+</html>
