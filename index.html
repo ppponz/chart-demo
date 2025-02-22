@@ -11,27 +11,26 @@
 <body>
     <div id="chart-container"></div>
     <script>
-        console.log('Script started');
         window.onload = function() {
-            console.log('Window loaded');
-            if (typeof LightweightCharts === 'undefined') {
-                console.error('LightweightCharts is not defined');
-                return;
-            }
-            console.log('LightweightCharts loaded:', LightweightCharts);
-
             const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
-                width: 800,
-                height: 600
+                width: window.innerWidth,
+                height: window.innerHeight,
+                layout: { background: { color: '#ffffff' }, textColor: 'black' },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } }
             });
-            console.log('Chart created:', chart);
 
-            const lineSeries = chart.addLineSeries();
+            const lineSeries = chart.addLineSeries({ color: '#2962FF' });
             lineSeries.setData([
                 { time: '2025-01-01', value: 50 },
-                { time: '2025-01-02', value: 55 }
+                { time: '2025-01-02', value: 55 },
+                { time: '2025-01-03', value: 53 },
+                { time: '2025-01-04', value: 60 },
+                { time: '2025-01-05', value: 58 }
             ]);
-            console.log('Line series added');
+
+            window.addEventListener('resize', () => {
+                chart.resize(window.innerWidth, window.innerHeight);
+            });
         };
     </script>
 </body>
