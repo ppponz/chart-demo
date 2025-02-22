@@ -12,6 +12,15 @@
     <div id="chart-container"></div>
     <script>
         window.onload = function() {
+            console.log('Window loaded');
+
+            // Check if LightweightCharts is available
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts failed to load');
+                return;
+            }
+            console.log('LightweightCharts loaded');
+
             const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
                 width: window.innerWidth,
                 height: window.innerHeight,
@@ -19,35 +28,34 @@
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: true }
             });
+            console.log('Chart created');
 
             const lineSeries = chart.addLineSeries({ color: '#2962FF' });
+            console.log('Line series created');
 
-            // Function to fetch Coinbase BTC/USD price
             function fetchCoinbasePrice() {
+                console.log('Fetching Coinbase data...');
                 const url = 'https://api.coinbase.com/v2/prices/BTC-USD/spot';
                 fetch(url)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) throw new Error('Network response not OK');
+                        return response.json();
+                    })
                     .then(data => {
+                        console.log('Data received:', data);
                         const price = parseFloat(data.data.amount);
-                        const timestamp = Math.floor(Date.now() / 1000); // Current time in seconds
-
-                        // Add new data point
+                        const timestamp = Math.floor(Date.now() / 1000);
                         const newPoint = { time: timestamp, value: price };
+                        console.log('New point:', newPoint);
                         lineSeries.update(newPoint);
-
-                        // Auto-scroll to the latest data
                         chart.timeScale().scrollToRealTime();
                     })
-                    .catch(error => console.error('Error fetching Coinbase data:', error));
+                    .catch(error => console.error('Fetch error:', error));
             }
 
-            // Fetch data immediately
             fetchCoinbasePrice();
-
-            // Fetch every 30 seconds
             setInterval(fetchCoinbasePrice, 30000);
 
-            // Resize chart when window resizes
             window.addEventListener('resize', () => {
                 chart.resize(window.innerWidth, window.innerHeight);
             });
