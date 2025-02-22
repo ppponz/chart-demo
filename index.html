@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>My TradingView Chart</title>
+    <!-- Load the TradingView Lightweight Charts library -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        /* Make the chart fill the page */
+        body { margin: 0; }
+        #chart-container { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+    <!-- Where the chart will appear -->
+    <div id="chart-container"></div>
+    <script>
+        // Create the chart
+        const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            layout: { background: { color: '#ffffff' }, textColor: 'black' },
+            grid: { vertLines: { visible: false }, horzLines: { visible: false } }
+        });
+
+        // Add a line series (sample data)
+        const lineSeries = chart.addLineSeries({ color: '#2962FF' });
+        lineSeries.setData([
+            { time: '2025-01-01', value: 50 },
+            { time: '2025-01-02', value: 55 },
+            { time: '2025-01-03', value: 53 },
+            { time: '2025-01-04', value: 60 },
+            { time: '2025-01-05', value: 58 }
+        ]);
+
+        // Make the chart resize with the window
+        window.addEventListener('resize', () => {
+            chart.resize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
