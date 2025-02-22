@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Coinbase BTC/USD 30-Second Chart</title>
+    <title>Coinbase BTC/USD 30-Second Bars (Fastest)</title>
     <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { margin: 0; }
@@ -29,31 +29,70 @@
             });
             console.log('Chart created');
 
-            const lineSeries = chart.addLineSeries({ color: '#2962FF' });
-            console.log('Line series created');
+            const barSeries = chart.addBarSeries({ color: '#2962FF' });
+            console.log('Bar series created');
 
-            function fetchCoinbasePrice() {
-                console.log('Fetching Coinbase data...');
-                const url = 'https://api.coinbase.com/v2/prices/BTC-USD/spot';
-                fetch(url)
-                    .then(response => {
-                        if (!response.ok) throw new Error('Network response not OK');
-                        return response.json();
-                    })
-                    .then(data => {
-                        console.log('Data received:', data);
-                        const price = parseFloat(data.data.amount);
-                        const timestamp = Math.floor(Date.now() / 1000);
-                        const newPoint = { time: timestamp, value: price };
-                        console.log('New point:', newPoint);
-                        lineSeries.update(newPoint);
-                        chart.timeScale().scrollToRealTime();
-                    })
-                    .catch(error => console.error('Fetch error:', error));
-            }
+            let currentBar = null;
+            const barInterval = 30; // 30 seconds
 
-            fetchCoinbasePrice();
-            setInterval(fetchCoinbasePrice, 30000);
+            // Starter data (last 5 minutes as one bar for context)
+            const now = Math.floor(Date.now() / 1000);
+            fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot')
+                .then(response => response.json())
+                .then(data => {
+                    const price = parseFloat(data.data.amount);
+                    barSeries.setData([
+                        { time: now - 300, open: price, high: price, low: price, close: price }
+                    ]);
+                    console.log('Starter bar set:', price);
+                })
+                .catch(error => console.error('Starter fetch error:', error));
+
+            const socket = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+            socket.onopen = () => {
+                console.log('WebSocket connected');
+                socket.send(JSON.stringify({
+                    type: 'subscribe',
+                    product_ids: ['BTC-USD'],
+                    channels: ['ticker']
+                }));
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type !== 'ticker' || data.product_id !== 'BTC-USD') return;
+
+                const price = parseFloat(data.price);
+                const timestamp = Math.floor(Date.now() / 1000);
+                const barTime = Math.floor(timestamp / barInterval) * barInterval;
+
+                console.log('Trade:', price, 'at', timestamp);
+
+                if (!currentBar || currentBar.time !== barTime) {
+                    if (currentBar) {
+                        barSeries.update(currentBar);
+                        console.log('Bar completed:', currentBar);
+                    }
+                    currentBar = {
+                        time: barTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price
+                    };
+                    console.log('New bar:', currentBar);
+                } else {
+                    currentBar.high = Math.max(currentBar.high, price);
+                    currentBar.low = Math.min(currentBar.low, price);
+                    currentBar.close = price;
+                    barSeries.update(currentBar);
+                }
+
+                chart.timeScale().scrollToRealTime();
+            };
+
+            socket.onerror = (error) => console.error('WebSocket error:', error);
+            socket.onclose = () => console.log('WebSocket closed');
 
             window.addEventListener('resize', () => {
                 chart.resize(window.innerWidth, window.innerHeight);
