@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Coinbase BTC/USD 30-Second Bars (Fastest)</title>
+    <title>Coinbase BTC/USD 30-Second Bars (Max History)</title>
     <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { margin: 0; }
@@ -11,7 +11,7 @@
 <body>
     <div id="chart-container"></div>
     <script>
-        window.onload = function() {
+        window.onload = async function() {
             console.log('Window loaded');
 
             if (typeof LightweightCharts === 'undefined') {
@@ -34,19 +34,42 @@
 
             let currentBar = null;
             const barInterval = 30; // 30 seconds
+            const barsPerCall = 2000; // Max per request
+            let allBars = [];
 
-            // Starter data (last 5 minutes as one bar for context)
-            const now = Math.floor(Date.now() / 1000);
-            fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot')
-                .then(response => response.json())
-                .then(data => {
-                    const price = parseFloat(data.data.amount);
-                    barSeries.setData([
-                        { time: now - 300, open: price, high: price, low: price, close: price }
-                    ]);
-                    console.log('Starter bar set:', price);
-                })
-                .catch(error => console.error('Starter fetch error:', error));
+            // Fetch max historical data (~83 hours)
+            async function fetchHistorical(segment) {
+                const now = Math.floor(Date.now() / 1000);
+                const toTs = now - (segment * barsPerCall * barInterval);
+                const url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=${barsPerCall}&aggregate=0.5&toTs=${toTs}`;
+                console.log('Fetching segment:', segment, 'toTs:', toTs);
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error('Fetch failed');
+                    const data = await response.json();
+                    if (!data.Data || !data.Data.Data) throw new Error('No data returned');
+                    const bars = data.Data.Data.map(item => ({
+                        time: item.time,
+                        open: item.open,
+                        high: item.high,
+                        low: item.low,
+                        close: item.close
+                    }));
+                    return bars;
+                } catch (error) {
+                    console.error('Segment', segment, 'error:', error);
+                    return [];
+                }
+            }
+
+            for (let i = 0; i < 5; i++) { // 5 calls = ~10,000 bars
+                const bars = await fetchHistorical(i);
+                allBars = allBars.concat(bars);
+            }
+            allBars.sort((a, b) => a.time - b.time);
+            barSeries.setData(allBars);
+            console.log('Historical data loaded:', allBars.length, 'bars');
+            chart.timeScale().fitContent();
 
             const socket = new WebSocket('wss://ws-feed.exchange.coinbase.com');
             socket.onopen = () => {
@@ -65,8 +88,6 @@
                 const price = parseFloat(data.price);
                 const timestamp = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(timestamp / barInterval) * barInterval;
-
-                console.log('Trade:', price, 'at', timestamp);
 
                 if (!currentBar || currentBar.time !== barTime) {
                     if (currentBar) {
