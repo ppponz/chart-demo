@@ -40,7 +40,7 @@
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
-            let livePrices = []; // For line series
+            let livePrices = [];
 
             // Chart setup
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
@@ -50,7 +50,7 @@
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { 
                     timeVisible: true, 
-                    secondsVisible: false, 
+                    secondsVisible: true, // Show seconds for precision
                     borderColor: '#2A2A2A',
                     rightOffset: 10,
                     fixLeftEdge: false
@@ -72,7 +72,7 @@
             });
 
             const lineSeries = priceChart.addLineSeries({
-                color: '#00E676', // Bright green for visibility
+                color: '#00E676',
                 lineWidth: 1,
                 priceScaleId: 'right',
                 title: 'Live Price'
@@ -171,7 +171,7 @@
                             return;
                         }
 
-                        const trade = data[1][0]; // First trade in batch
+                        const trade = data[1][0];
                         const price = parseFloat(trade[0]);
                         const timestamp = Math.floor(parseFloat(trade[2]));
                         if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
@@ -202,12 +202,11 @@
                         console.log('Live trade update:', { price, bar: currentBar });
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
-                            // Add to line series for micro-movements
                             livePrices.push({ time: timestamp, value: price });
-                            if (livePrices.length > 1000) livePrices.shift(); // Limit size
+                            if (livePrices.length > 1000) livePrices.shift();
                             lineSeries.setData(livePrices);
-                            // Force redraw
-                            priceChart.applyOptions({});
+                            // Stronger redraw
+                            priceChart.timeScale().fitContent();
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + 300) {
                                 priceChart.timeScale().scrollToRealTime();
