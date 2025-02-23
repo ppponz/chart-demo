@@ -26,8 +26,8 @@
     <div id="container">
         <div id="header"><h1>BTC-USD Price & Liquidations</h1></div>
         <div class="stats-panel">
-            <div class="stat-item"><div class="stat-label">Long Liquidations</div><div class="stat-value long" id="long-liq">0 BTC</div></div>
-            <div class="stat-item"><div class="stat-label">Short Liquidations</div><div class="stat-value short" id="short-liq">0 BTC</div></div>
+            <div class="stat-item"><div class="stat-label">Long Liquidations</div><div class="stat-value long" id="long-liq">$0.00</div></div>
+            <div class="stat-item"><div class="stat-label">Short Liquidations</div><div class="stat-value short" id="short-liq">$0.00</div></div>
         </div>
         <div id="price-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
@@ -65,6 +65,7 @@
             let titleTimeout = null;
             let tradeCount = 0;
             let lastLogTime = Date.now();
+            let lastBtcPrice = 0; // Store latest BTC/USD price for liquidation conversion
 
             // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
@@ -104,9 +105,9 @@
             const candleSeries = priceChart.addCandlestickSeries({
                 upColor: '#888888',
                 downColor: '#888888',
-                borderVisible: false,
-                wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350'
+                borderColor: '#888888', // Gray border
+                wickUpColor: '#888888', // Gray up wicks
+                wickDownColor: '#888888' // Gray down wicks
             });
 
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
@@ -166,6 +167,7 @@
                     console.log(`Total fetched ${historicalData.length} valid bars`);
                     console.log('Processed historical data:', historicalData.slice(0, 5));
                     console.log('Last historical bar:', historicalData[historicalData.length - 1]);
+                    lastBtcPrice = historicalData[historicalData.length - 1].close; // Set initial price for liquidation conversion
                     candleSeries.setData(historicalData);
                     priceChart.timeScale().scrollToRealTime();
                     elements.loadingOverlay.style.display = 'none';
@@ -254,11 +256,13 @@
                         logTradeCount();
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
+                            lastBtcPrice = currentBar.close; // Update price for liquidation conversion
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
                             debounceTitle(price);
+                            updateLiquidationStats(); // Refresh liquidation USD with latest price
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
@@ -296,10 +300,12 @@
                 liquidations = liquidations.filter(liq => liq.time >= cutoff);
                 const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
                 const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
-                const longVolume = longLiqs.reduce((sum, liq) => sum + liq.qty, 0);
-                const shortVolume = shortLiqs.reduce((sum, liq) => sum + liq.qty, 0);
-                elements.longLiq.textContent = `${longVolume.toFixed(2)} BTC`;
-                elements.shortLiq.textContent = `${shortVolume.toFixed(2)} BTC`;
+                const longVolumeBtc = longLiqs.reduce((sum, liq) => sum + liq.qty, 0);
+                const shortVolumeBtc = shortLiqs.reduce((sum, liq) => sum + liq.qty, 0);
+                const longVolumeUsd = longVolumeBtc * lastBtcPrice;
+                const shortVolumeUsd = shortVolumeBtc * lastBtcPrice;
+                elements.longLiq.textContent = `$${longVolumeUsd.toFixed(2)}`;
+                elements.shortLiq.textContent = `$${shortVolumeUsd.toFixed(2)}`;
                 longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
                 shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
                 liqChart.timeScale().fitContent();
