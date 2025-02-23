@@ -102,8 +102,11 @@
             });
 
             const candleSeries = priceChart.addCandlestickSeries({
-                upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
-                wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+                upColor: '#888888', // Gray to match .stat-label
+                downColor: '#888888', // Gray to match .stat-label
+                borderVisible: false,
+                wickUpColor: '#26a69a', // Keep green for up wicks
+                wickDownColor: '#ef5350' // Keep red for down wicks
             });
 
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
