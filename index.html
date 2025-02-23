@@ -45,7 +45,8 @@
 
             // Chart setup
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
-                width: priceChartContainer.offsetWidth, height: priceChartContainer.offsetHeight,
+                width: priceChartContainer.offsetWidth,
+                height: priceChartContainer.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -60,7 +61,8 @@
             });
 
             const liqChart = LightweightCharts.createChart(liqChartContainer, {
-                width: liqChartContainer.offsetWidth, height: liqChartContainer.offsetHeight,
+                width: liqChartContainer.offsetWidth,
+                height: liqChartContainer.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { visible: true, timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A' },
@@ -97,12 +99,11 @@
                 if (redrawTimeout) clearTimeout(redrawTimeout);
                 redrawTimeout = setTimeout(() => {
                     priceChart.timeScale().fitContent();
-                }, 500);
+                }, 250); // Faster debounce for snappier updates
             }
 
             // Fetch historical data from Kraken
             async function fetchHistoricalData() {
-                const totalBars = 2016; // 7 days of 5-min bars
                 const startTime = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
                 try {
                     const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${startTime}`;
@@ -155,7 +156,7 @@
                         pair: ['XBT/USD'],
                         subscription: { name: 'trade' }
                     }));
-                    reconnectDelay = 2000; // Reset on success
+                    reconnectDelay = 2000;
                 };
 
                 ws.onmessage = (event) => {
@@ -217,7 +218,7 @@
                 ws.onclose = () => {
                     console.log(`Kraken WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
                     setTimeout(connectKrakenWebSocket, reconnectDelay);
-                    reconnectDelay = Math.min(reconnectDelay * 2, 16000); // Exponential backoff, cap at 16s
+                    reconnectDelay = Math.min(reconnectDelay * 2, 16000);
                 };
                 return ws;
             }
