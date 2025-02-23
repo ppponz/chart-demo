@@ -47,8 +47,13 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A' },
-                rightPriceScale: { borderColor: '#2A2A2A' }
+                timeScale: { 
+                    timeVisible: true, 
+                    secondsVisible: false, 
+                    borderColor: '#2A2A2A',
+                    rightOffset: 5 // Add buffer for future bars
+                },
+                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
 
             const liqChart = LightweightCharts.createChart(liqChartContainer, {
@@ -122,12 +127,12 @@
                 }
 
                 if (historicalData.length > 0) {
-                    // Sort by time and remove duplicates
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     console.log('Processed historical data:', historicalData.slice(0, 5));
+                    console.log('Last historical bar:', historicalData[historicalData.length - 1]);
                     candleSeries.setData(historicalData);
-                    priceChart.timeScale().fitContent();
+                    priceChart.timeScale().scrollToRealTime(); // Scroll to latest
                     loadingOverlay.style.display = 'none';
                     return true;
                 }
@@ -173,17 +178,18 @@
 
                         if (isValidBar(bar)) {
                             console.log('Valid WebSocket bar:', bar);
-                            if (!currentBar || currentBar.time !== bar.time) {
+                            if (!currentBar || bar.time > currentBar.time) { // Ensure forward progress
                                 if (currentBar && isValidBar(currentBar)) {
                                     console.log('Updating previous bar:', currentBar);
                                     candleSeries.update(currentBar);
                                 }
                                 currentBar = bar;
                             } else {
-                                currentBar = { ...currentBar, ...bar };
+                                currentBar = { ...currentBar, ...bar }; // Update in-place if same time
                             }
                             console.log('Updating current bar:', currentBar);
                             candleSeries.update(currentBar);
+                            priceChart.timeScale().scrollToRealTime(); // Keep chart on latest
                         } else {
                             console.warn('Invalid WebSocket bar:', bar);
                         }
