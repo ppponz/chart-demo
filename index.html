@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
-    <script src="/chart-demo/scripts/lightweight-charts.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@3.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
             margin: 0;
@@ -133,34 +133,6 @@
             };
             coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
             coinbaseWs.onclose = () => console.log('Coinbase WS closed');
-
-            // Bybit WebSocket for liquidations
-            const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
-            bybitWs.onopen = () => {
-                console.log('Bybit WebSocket connected');
-                bybitWs.send(JSON.stringify({
-                    op: 'subscribe',
-                    args: ['liquidation.all']
-                }));
-            };
-            bybitWs.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.topic !== 'liquidation.all' || !data.data) return;
-
-                const { symbol, price, side } = data.data;
-                if (symbol !== 'BTCUSDT') return;
-                const timestamp = Math.floor(Date.now() / 1000);
-                const marker = { time: timestamp, value: parseFloat(price) };
-                (side === 'Buy' ? longLiqSeries : shortLiqSeries).update(marker);
-            };
-            bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
-            bybitWs.onclose = () => console.log('Bybit WS closed');
-
-            window.addEventListener('resize', () => chart.resize(window.innerWidth, window.innerHeight));
-            window.addEventListener('unload', () => {
-                coinbaseWs.close();
-                bybitWs.close();
-            });
 
             await fetchHistoricalData();
         });
