@@ -131,7 +131,7 @@
                         await new Promise(resolve => setTimeout(resolve, 500));
                     }
 
-                    console.log('Processed historical bars:', allBars.length, 'bars', allBars.slice(0, 2)); // Show first 2 for reference
+                    console.log('Processed historical bars:', allBars.length, 'bars', allBars.slice(0, 2));
                     if (allBars.length > 0) {
                         barSeries.setData(allBars);
                         const lastBar = allBars[allBars.length - 1];
@@ -218,7 +218,7 @@
                     const threshold = 10;
 
                     const series = side === 'Buy' ? longLiqSeries : shortLiqSeries;
-                    const color = liqValue > threshold ? (side === 'Buy' : '#FF5555' : '#55FF55') : series.options().color;
+                    const color = liqValue > threshold ? (side === 'Buy' ? '#FF5555' : '#55FF55') : series.options().color;
 
                     series.update({
                         time: timestamp,
