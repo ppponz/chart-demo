@@ -51,7 +51,7 @@
                     timeVisible: true, 
                     secondsVisible: false, 
                     borderColor: '#2A2A2A',
-                    rightOffset: 5 // Add buffer for future bars
+                    rightOffset: 10
                 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
@@ -132,7 +132,7 @@
                     console.log('Processed historical data:', historicalData.slice(0, 5));
                     console.log('Last historical bar:', historicalData[historicalData.length - 1]);
                     candleSeries.setData(historicalData);
-                    priceChart.timeScale().scrollToRealTime(); // Scroll to latest
+                    priceChart.timeScale().scrollToRealTime();
                     loadingOverlay.style.display = 'none';
                     return true;
                 }
@@ -178,18 +178,24 @@
 
                         if (isValidBar(bar)) {
                             console.log('Valid WebSocket bar:', bar);
-                            if (!currentBar || bar.time > currentBar.time) { // Ensure forward progress
+                            if (!currentBar || bar.time > currentBar.time) {
                                 if (currentBar && isValidBar(currentBar)) {
                                     console.log('Updating previous bar:', currentBar);
                                     candleSeries.update(currentBar);
                                 }
                                 currentBar = bar;
                             } else {
-                                currentBar = { ...currentBar, ...bar }; // Update in-place if same time
+                                currentBar = { ...currentBar, ...bar };
                             }
                             console.log('Updating current bar:', currentBar);
                             candleSeries.update(currentBar);
-                            priceChart.timeScale().scrollToRealTime(); // Keep chart on latest
+                            // Scroll to the latest bar
+                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
+                            const visibleFrom = Math.min(lastHistoricalTime, currentBar.time - 3600); // Last hour
+                            priceChart.timeScale().setVisibleRange({
+                                from: visibleFrom,
+                                to: currentBar.time + 600 // 10 minutes ahead
+                            });
                         } else {
                             console.warn('Invalid WebSocket bar:', bar);
                         }
