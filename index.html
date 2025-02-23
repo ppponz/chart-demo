@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
             margin: 0;
@@ -30,82 +31,9 @@
     <div id="chart-container"></div>
     <div id="price-label">$0</div>
     <script>
-        // Embedded Lightweight Charts v4.1.3 (simplified)
-        (function (global, factory) {
-            if (typeof exports === "object" && typeof module === "object") {
-                module.exports = factory();
-            } else if (typeof define === "function" && define.amd) {
-                define([], factory);
-            } else {
-                var LightweightCharts = factory();
-                global.LightweightCharts = LightweightCharts;
-            }
-        })(this, (function () {
-            var LightweightCharts = {};
-            LightweightCharts.version = function () { return "4.1.3"; };
-
-            function ChartApi(container, options) {
-                this._container = container;
-                this._options = options || {};
-                this.addCandlestickSeries = function (options) {
-                    return new CandlestickSeries(this, options || {});
-                };
-                this.addScatterSeries = function (options) {
-                    return new ScatterSeries(this, options || {});
-                };
-                this.options = function () { return this._options; };
-                this.timeScale = function () {
-                    return {
-                        fitContent: function () { /* Simulate fitting */ }
-                    };
-                };
-                this.resize = function (width, height) {
-                    this._container.style.width = width + 'px';
-                    this._container.style.height = height + 'px';
-                };
-            }
-
-            LightweightCharts.createChart = function (container, options) {
-                return new ChartApi(container, options);
-            };
-
-            function CandlestickSeries(chart, options) {
-                this._chart = chart;
-                this._options = options;
-                this._data = [];
-                this.setData = function (data) {
-                    this._data = data;
-                    this._render();
-                };
-                this.update = function (bar) {
-                    this._data.push(bar);
-                    this._render();
-                };
-                this._render = function () {
-                    console.log('Candlestick data:', this._data);
-                };
-            }
-
-            function ScatterSeries(chart, options) {
-                this._chart = chart;
-                this._options = options;
-                this._data = [];
-                this.update = function (point) {
-                    this._data.push(point);
-                    this._render();
-                };
-                this._render = function () {
-                    console.log('Scatter data:', this._data);
-                };
-            }
-
-            return LightweightCharts;
-        }));
-
-        // Chart code without historical fetch
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
-                console.error('Lightweight Charts not loaded');
+                console.error('Lightweight Charts not loaded - CDN failed');
                 return;
             }
             console.log('Lightweight Charts version:', LightweightCharts.version());
@@ -204,4 +132,3 @@
     </script>
 </body>
 </html>
-
