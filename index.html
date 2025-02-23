@@ -9,7 +9,7 @@
         #header { text-align: center; padding: 15px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.5em; color: #888888; }
         .chart-wrapper { height: 500px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; margin-bottom: 20px; }
-        #liq-chart { height: 200px; }
+        #liq-chart { height: 300px; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         .stats-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; background: #161b22; padding: 15px; border-radius: 8px; }
@@ -40,11 +40,14 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
+            const BYBIT_OI_URL = 'https://api.bybit.com/v5/market/open-interest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes in seconds
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000; // 1s debounce for tab title
+            const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
+            const OI_INTERVAL = '1h'; // 1-hour OI data
 
             // DOM elements
             const elements = {
@@ -65,7 +68,10 @@
             let titleTimeout = null;
             let tradeCount = 0;
             let lastLogTime = Date.now();
-            let lastBtcPrice = 0; // Store latest BTC/USD price for liquidation conversion
+            let lastBtcPrice = 0;
+            let openInterestData = [];
+            let cvd = 0; // Cumulative Volume Delta starts at 0
+            let cvdData = [];
 
             // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
@@ -99,32 +105,55 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { visible: true, timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A' },
-                rightPriceScale: { borderColor: '#2A2A2A' }
+                rightPriceScale: { borderColor: '#2A2A2A', scaleMargins: { top: 0.6, bottom: 0 }, autoScale: true },
+                leftPriceScale: { visible: true, borderColor: '#2A2A2A', scaleMargins: { top: 0, bottom: 0.4 }, autoScale: true }
             });
 
             const candleSeries = priceChart.addCandlestickSeries({
                 upColor: '#888888',
                 downColor: '#888888',
-                borderColor: '#888888', // Gray border
-                wickUpColor: '#888888', // Gray up wicks
-                wickDownColor: '#888888' // Gray down wicks
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888'
             });
 
-            const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
-            const shortLiqSeries = liqChart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' } });
+            const longLiqSeries = liqChart.addHistogramSeries({ 
+                color: '#ef5350', 
+                priceFormat: { type: 'volume' }, 
+                priceScaleId: 'left' 
+            });
+            const shortLiqSeries = liqChart.addHistogramSeries({ 
+                color: '#26a69a', 
+                priceFormat: { type: 'volume' }, 
+                priceScaleId: 'left' 
+            });
+            const oiSeries = liqChart.addLineSeries({ 
+                color: '#888888', 
+                lineWidth: 1, 
+                priceScaleId: 'right', 
+                title: 'Open Interest' 
+            });
+            const cvdSeries = liqChart.addLineSeries({ 
+                color: '#888888', 
+                lineWidth: 1, 
+                priceScaleId: 'right', 
+                title: 'CVD' 
+            });
 
             // Initialize liquidation histograms with zero
             const initTime = Math.floor(Date.now() / 1000);
             longLiqSeries.setData([{ time: initTime, value: 0 }]);
             shortLiqSeries.setData([{ time: initTime, value: 0 }]);
+            oiSeries.setData([{ time: initTime, value: 0 }]);
+            cvdSeries.setData([{ time: initTime, value: 0 }]);
             liqChart.timeScale().scrollToRealTime();
 
-            // Fetch historical data
+            // Fetch historical data (Kraken OHLC)
             async function fetchHistoricalData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
                     const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`;
-                    console.log(`Fetching: ${url}`);
+                    console.log(`Fetching Kraken OHLC: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
@@ -145,7 +174,7 @@
                     if (historicalData.length < MAX_BARS) {
                         const lastTime = historicalData[historicalData.length - 1].time;
                         const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${lastTime + BAR_INTERVAL}`;
-                        console.log(`Fetching additional: ${secondUrl}`);
+                        console.log(`Fetching additional Kraken OHLC: ${secondUrl}`);
                         const secondResponse = await fetch(secondUrl);
                         if (secondResponse.ok) {
                             const secondData = await secondResponse.json();
@@ -167,19 +196,66 @@
                     console.log(`Total fetched ${historicalData.length} valid bars`);
                     console.log('Processed historical data:', historicalData.slice(0, 5));
                     console.log('Last historical bar:', historicalData[historicalData.length - 1]);
-                    lastBtcPrice = historicalData[historicalData.length - 1].close; // Set initial price for liquidation conversion
+                    lastBtcPrice = historicalData[historicalData.length - 1].close;
                     candleSeries.setData(historicalData);
                     priceChart.timeScale().scrollToRealTime();
                     elements.loadingOverlay.style.display = 'none';
                     document.title = `BTC: $${historicalData[historicalData.length - 1].close.toFixed(2)}`;
                     return true;
                 } catch (error) {
-                    console.error('Historical fetch failed:', error);
+                    console.error('Kraken historical fetch failed:', error);
                     elements.loadingText.textContent = 'Error loading history. Starting with live data...';
                     setTimeout(() => elements.loadingOverlay.style.display = 'none', 2000);
                     return false;
                 }
             }
+
+            // Fetch Bybit historical open interest (7 days)
+            async function fetchBybitOpenInterest() {
+                const endTime = Math.floor(Date.now() / 1000) * 1000; // Current time in ms
+                const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000); // 7 days back
+                try {
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    console.log(`Fetching Bybit OI: ${url}`);
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+
+                    if (data.retCode !== 0) throw new Error(`Bybit OI error: ${data.retMsg}`);
+                    openInterestData = data.result.list.map(item => ({
+                        time: Math.floor(parseInt(item.timestamp) / 1000),
+                        value: parseFloat(item.openInterest)
+                    })).reverse(); // Oldest to newest
+                    console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
+                    oiSeries.setData(openInterestData);
+                    liqChart.timeScale().scrollToRealTime();
+                } catch (error) {
+                    console.error('Bybit OI fetch failed:', error);
+                    openInterestData = [{ time: initTime, value: 0 }];
+                    oiSeries.setData(openInterestData);
+                }
+            }
+
+            // Fetch live Bybit OI (REST polling)
+            async function fetchBybitOpenInterestLive() {
+                try {
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=1`;
+                    const response = await fetch(url);
+                    if (!response.ok) return; // Silent fail
+                    const data = await response.json();
+                    if (data.retCode === 0 && data.result.list.length > 0) {
+                        const timestamp = Math.floor(Date.now() / 1000);
+                        const latestOi = parseFloat(data.result.list[0].openInterest);
+                        openInterestData.push({ time: timestamp, value: latestOi });
+                        if (openInterestData.length > MAX_BARS) openInterestData.shift();
+                        oiSeries.setData(openInterestData);
+                        console.log('Live OI update:', { time: timestamp, value: latestOi });
+                    }
+                } catch (error) {
+                    console.error('Bybit live OI fetch failed:', error);
+                }
+            }
+            setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL); // Poll every 5s
 
             // WebSocket handler factory
             function createWebSocket(url, onOpen, onMessage, label, statusElement) {
@@ -256,13 +332,13 @@
                         logTradeCount();
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
-                            lastBtcPrice = currentBar.close; // Update price for liquidation conversion
+                            lastBtcPrice = currentBar.close;
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
                             debounceTitle(price);
-                            updateLiquidationStats(); // Refresh liquidation USD with latest price
+                            updateLiquidationStats();
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
@@ -275,16 +351,32 @@
             // Bybit WebSocket
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
-                (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['liquidation.BTCUSDT'] })),
+                (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
+                        console.log('Raw Bybit message:', data);
+
+                        // Handle liquidation updates
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                             const { side, qty, time } = data.data;
                             const timestamp = Math.floor(parseInt(time) / 1000);
                             const liqValue = parseFloat(qty);
                             liquidations.push({ time: timestamp, qty: liqValue, side });
                             updateLiquidationStats();
+                        }
+
+                        // Handle trade updates for CVD
+                        if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
+                            const trade = data.data[0];
+                            const volume = parseFloat(trade.v);
+                            const side = trade.S === 'Buy' ? 1 : -1;
+                            const timestamp = Math.floor(parseInt(trade.T) / 1000);
+                            cvd += volume * side;
+                            cvdData.push({ time: timestamp, value: cvd });
+                            if (cvdData.length > MAX_BARS) cvdData.shift();
+                            cvdSeries.setData(cvdData);
+                            console.log('Live CVD update:', { time: timestamp, value: cvd });
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
@@ -313,6 +405,7 @@
 
             // Main execution
             const historicalSuccess = await fetchHistoricalData();
+            await fetchBybitOpenInterest(); // Fetch 7-day historical OI
             if (!historicalSuccess && !currentBar) {
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
