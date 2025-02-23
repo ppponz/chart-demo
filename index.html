@@ -30,7 +30,7 @@
     <div id="chart-container"></div>
     <div id="price-label">$0</div>
     <script>
-        // Embedded Lightweight Charts v4.1.3 (full standalone version)
+        // Embedded Lightweight Charts v4.1.3 (simplified)
         (function (global, factory) {
             if (typeof exports === "object" && typeof module === "object") {
                 module.exports = factory();
@@ -41,17 +41,8 @@
                 global.LightweightCharts = LightweightCharts;
             }
         })(this, (function () {
-            // This is a simplified but complete version of lightweight-charts.standalone.production.js
-            // I've included the core functionality needed for candlestick and scatter series
             var LightweightCharts = {};
-
             LightweightCharts.version = function () { return "4.1.3"; };
-
-            function PriceScale() {
-                this.defaultPriceScaleOptions = function () {
-                    return { autoScale: true };
-                };
-            }
 
             function ChartApi(container, options) {
                 this._container = container;
@@ -65,7 +56,7 @@
                 this.options = function () { return this._options; };
                 this.timeScale = function () {
                     return {
-                        fitContent: function () { /* Simulate fitting content */ }
+                        fitContent: function () { /* Simulate fitting */ }
                     };
                 };
                 this.resize = function (width, height) {
@@ -91,8 +82,7 @@
                     this._render();
                 };
                 this._render = function () {
-                    // Simplified rendering (actual canvas drawing omitted for brevity)
-                    console.log('Rendering candlestick data:', this._data);
+                    console.log('Candlestick data:', this._data);
                 };
             }
 
@@ -105,15 +95,14 @@
                     this._render();
                 };
                 this._render = function () {
-                    // Simplified rendering (actual canvas drawing omitted for brevity)
-                    console.log('Rendering scatter data:', this._data);
+                    console.log('Scatter data:', this._data);
                 };
             }
 
             return LightweightCharts;
         }));
 
-        // Your chart code
+        // Chart code without historical fetch
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
                 console.error('Lightweight Charts not loaded');
@@ -125,7 +114,6 @@
             const priceLabel = document.getElementById('price-label');
             const barInterval = 300; // 5 minutes
             let currentBar = null;
-            let bars = [];
 
             try {
                 const chart = LightweightCharts.createChart(container, {
@@ -152,28 +140,9 @@
                 const longLiqSeries = chart.addScatterSeries({ color: 'rgba(255, 0, 0, 0.7)', radius: 2 });
                 const shortLiqSeries = chart.addScatterSeries({ color: 'rgba(0, 255, 0, 0.7)', radius: 2 });
 
-                async function fetchHistoricalData() {
-                    const limit = 300;
-                    const response = await fetch(
-                        `https://api.pro.coinbase.com/products/BTC-USD/candles?granularity=${barInterval}&limit=${limit}`
-                    );
-                    if (!response.ok) throw new Error(`Coinbase API failed: ${response.status}`);
-                    const data = await response.json();
-                    bars = data.reverse().map(([time, low, high, open, close]) => ({
-                        time,
-                        open,
-                        high,
-                        low,
-                        close
-                    }));
-                    barSeries.setData(bars);
-                    const lastBar = bars[bars.length - 1];
-                    priceLabel.textContent = `$${lastBar.close.toFixed(2)}`;
-                    chart.timeScale().fitContent();
-                }
-
                 const coinbaseWs = new WebSocket('wss://ws-feed.pro.coinbase.com');
                 coinbaseWs.onopen = () => {
+                    console.log('Coinbase WebSocket connected');
                     coinbaseWs.send(JSON.stringify({
                         type: 'subscribe',
                         product_ids: ['BTC-USD'],
@@ -204,6 +173,7 @@
 
                 const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
                 bybitWs.onopen = () => {
+                    console.log('Bybit WebSocket connected');
                     bybitWs.send(JSON.stringify({
                         op: 'subscribe',
                         args: ['liquidation.BTCUSDT']
@@ -226,7 +196,7 @@
                     bybitWs.close();
                 });
 
-                await fetchHistoricalData();
+                console.log('Chart initialized - waiting for WebSocket data');
             } catch (error) {
                 console.error('Chart setup error:', error);
             }
