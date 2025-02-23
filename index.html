@@ -17,6 +17,7 @@
         .stat-label { font-size: 0.9em; color: #888; }
         .stat-value { font-size: 1.2em; margin-top: 5px; }
         .long { color: #26a69a; } .short { color: #ef5350; }
+        #status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -30,17 +31,21 @@
         <div id="price-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
     </div>
+    <div id="status">Kraken: Connecting</div>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             const priceChartContainer = document.getElementById('price-chart');
             const liqChartContainer = document.getElementById('liq-chart');
             const loadingOverlay = document.getElementById('loading-overlay');
             const loadingText = document.getElementById('loading-text');
+            const statusDiv = document.getElementById('status');
             
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
             let redrawTimeout = null;
+            let tradeCount = 0;
+            let lastLogTime = Date.now();
 
             // Chart setup
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
@@ -51,7 +56,7 @@
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { 
                     timeVisible: true, 
-                    secondsVisible: false, // Removed for cleaner look
+                    secondsVisible: false,
                     borderColor: '#2A2A2A',
                     rightOffset: 10,
                     fixLeftEdge: false
@@ -94,6 +99,16 @@
                 }, 250);
             }
 
+            // Throttle trade logging
+            function logTradeCount() {
+                const now = Date.now();
+                if (now - lastLogTime >= 60000) { // Every 60s
+                    console.log(`Trades per minute: ${(tradeCount / ((now - lastLogTime) / 60000)).toFixed(1)}`);
+                    tradeCount = 0;
+                    lastLogTime = now;
+                }
+            }
+
             // Fetch historical data from Kraken
             async function fetchHistoricalData() {
                 const startTime = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
@@ -120,8 +135,30 @@
                     })).filter(isValidBar);
 
                     console.log(`Fetched ${historicalData.length} valid bars`);
+                    if (historicalData.length < 2016 && historicalData.length > 0) {
+                        // Fetch more if needed
+                        const lastTime = historicalData[historicalData.length - 1].time;
+                        const secondUrl = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${lastTime + 300}`;
+                        console.log(`Fetching additional: ${secondUrl}`);
+                        const secondResponse = await fetch(secondUrl);
+                        if (secondResponse.ok) {
+                            const secondData = await secondResponse.json();
+                            if (secondData.error.length === 0) {
+                                const moreBars = secondData.result['XXBTZUSD'] || [];
+                                historicalData.push(...moreBars.map(bar => ({
+                                    time: parseInt(bar[0], 10),
+                                    open: parseFloat(bar[1]),
+                                    high: parseFloat(bar[2]),
+                                    low: parseFloat(bar[3]),
+                                    close: parseFloat(bar[4])
+                                })).filter(isValidBar));
+                            }
+                        }
+                    }
+
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
+                    console.log(`Total fetched ${historicalData.length} valid bars`);
                     console.log('Processed historical data:', historicalData.slice(0, 5));
                     console.log('Last historical bar:', historicalData[historicalData.length - 1]);
                     candleSeries.setData(historicalData);
@@ -144,6 +181,8 @@
 
                 ws.onopen = () => {
                     console.log('Kraken WebSocket connected');
+                    statusDiv.textContent = 'Kraken: Connected';
+                    statusDiv.style.color = '#00E676';
                     ws.send(JSON.stringify({
                         event: 'subscribe',
                         pair: ['XBT/USD'],
@@ -191,6 +230,8 @@
                         }
 
                         console.log('Live trade update:', { price, bar: currentBar });
+                        tradeCount++;
+                        logTradeCount();
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
                             debounceRedraw();
@@ -205,9 +246,15 @@
                     }
                 };
 
-                ws.onerror = (error) => console.error('Kraken WebSocket error:', error);
+                ws.onerror = (error) => {
+                    console.error('Kraken WebSocket error:', error);
+                    statusDiv.textContent = 'Kraken: Error';
+                    statusDiv.style.color = '#ef5350';
+                };
                 ws.onclose = () => {
                     console.log(`Kraken WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+                    statusDiv.textContent = `Kraken: Reconnecting (${reconnectDelay/1000}s)`;
+                    statusDiv.style.color = '#ef5350';
                     setTimeout(connectKrakenWebSocket, reconnectDelay);
                     reconnectDelay = Math.min(reconnectDelay * 2, 16000);
                 };
