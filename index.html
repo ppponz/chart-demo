@@ -51,7 +51,8 @@
                     timeVisible: true, 
                     secondsVisible: false, 
                     borderColor: '#2A2A2A',
-                    rightOffset: 10
+                    rightOffset: 10,
+                    fixLeftEdge: false // Allow manual scrolling
                 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
@@ -157,7 +158,7 @@
                         const data = JSON.parse(event.data);
                         console.log('Raw WebSocket message:', data);
 
-                        if (!Array.isArray(data) || !data[1] || typeof data[1] !== 'object' || data[2] !== 'ticker') {
+                        if (!Array.isArray(data) || !data[1] || data[2] !== 'ticker') {
                             console.log('Skipping non-ticker message');
                             return;
                         }
@@ -170,7 +171,7 @@
                         }
 
                         const now = Math.floor(Date.now() / 1000);
-                        const barTime = Math.floor(now / 300) * 300; // Align to 5-minute boundary
+                        const barTime = Math.floor(now / 300) * 300; // 5-minute boundary
 
                         if (!currentBar || currentBar.time !== barTime) {
                             if (currentBar && isValidBar(currentBar)) {
@@ -193,11 +194,11 @@
                         console.log('Live ticker update:', { price, bar: currentBar });
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
+                            // Only scroll if significantly ahead of last historical bar
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
-                            priceChart.timeScale().setVisibleRange({
-                                from: Math.min(lastHistoricalTime, currentBar.time - 3600),
-                                to: currentBar.time + 600
-                            });
+                            if (currentBar.time > lastHistoricalTime + 300) {
+                                priceChart.timeScale().scrollToRealTime();
+                            }
                         }
                     } catch (error) {
                         console.error('WebSocket processing error:', error);
