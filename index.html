@@ -179,14 +179,14 @@
                 console.log('Bybit WebSocket connected');
                 bybitWs.send(JSON.stringify({
                     op: 'subscribe',
-                    args: ['liquidation.linear'] // Updated for BTCUSDT.P perps
+                    args: ['liquidation.BTCUSDT'] // Per `aggr.trade` and v5 docs for BTCUSDT.P
                 }));
             };
             bybitWs.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 console.log('Bybit WS message:', data);
 
-                if (data.topic === 'liquidation.linear' && data.data) {
+                if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                     const { symbol, price, side, qty } = data.data;
                     console.log(`Liquidation: Symbol=${symbol}, Price=${price}, Side=${side}, Qty=${qty}`);
 
