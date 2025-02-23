@@ -28,14 +28,14 @@
         }
         #liq-stats {
             position: absolute;
-            top: 40px; /* Below price label */
+            top: 40px;
             left: 10px;
             color: #D3D3D3;
             font-size: 1em;
             background: rgba(42, 42, 42, 0.8);
             padding: 5px 10px;
             border-radius: 4px;
-            white-space: pre-wrap; /* Preserve line breaks */
+            white-space: pre-wrap;
         }
     </style>
 </head>
@@ -57,7 +57,7 @@
             const barInterval = 300; // 5 minutes in seconds
             let currentBar = null;
             let bars = [];
-            let liquidations = []; // Store 24h liquidation events
+            let liquidations = [];
 
             const chart = LightweightCharts.createChart(container, {
                 width: window.innerWidth,
@@ -85,17 +85,18 @@
 
             const longLiqSeries = chart.addHistogramSeries({ 
                 color: 'rgba(255, 0, 0, 0.7)', 
-                priceLineVisible: false 
+                priceLineVisible: false,
+                priceFormat: { type: 'volume' } // Ensure price axis treats it as volume
             });
             const shortLiqSeries = chart.addHistogramSeries({ 
                 color: 'rgba(0, 255, 0, 0.7)', 
-                priceLineVisible: false 
+                priceLineVisible: false,
+                priceFormat: { type: 'volume' }
             });
 
-            // Update liquidation stats display
             function updateLiqStats() {
                 const now = Date.now() / 1000;
-                const cutoff = now - 24 * 60 * 60; // 24 hours ago
+                const cutoff = now - 24 * 60 * 60;
                 liquidations = liquidations.filter(liq => liq.time >= cutoff);
 
                 const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
@@ -178,19 +179,23 @@
                 console.log('Bybit WebSocket connected');
                 bybitWs.send(JSON.stringify({
                     op: 'subscribe',
-                    args: ['liquidation.all']
+                    args: ['liquidation.BTCUSDT'] // Updated topic to match v5 API
                 }));
             };
             bybitWs.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                if (data.topic !== 'liquidation.all' || !data.data) return;
+                console.log('Bybit WS raw data:', data); // Debug raw message
+
+                if (data.topic !== 'liquidation.BTCUSDT' || !data.data) return;
 
                 const { symbol, price, side, qty } = data.data;
-                if (symbol !== 'BTCUSDT') return;
+                console.log(`Received: Symbol=${symbol}, Price=${price}, Side=${side}, Qty=${qty}`); // Debug parsed data
+
+                if (!symbol.includes('BTCUSDT')) return; // Broader check
 
                 const timestamp = Math.floor(Date.now() / 1000);
-                const liqValue = parseFloat(qty);
-                const liqPrice = parseFloat(price);
+                const liqValue = parseFloat(qty) || 0;
+                const liqPrice = parseFloat(price) || 0;
                 const threshold = 10;
 
                 const series = side === 'Buy' ? longLiqSeries : shortLiqSeries;
@@ -202,7 +207,6 @@
                     color: color
                 });
 
-                // Track liquidation for stats
                 liquidations.push({ time: timestamp, qty: liqValue, side });
                 updateLiqStats();
 
@@ -211,8 +215,7 @@
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
             bybitWs.onclose = () => console.log('Bybit WS closed');
 
-            // Cleanup old liquidations periodically
-            setInterval(updateLiqStats, 60000); // Every minute
+            setInterval(updateLiqStats, 60000);
 
             window.addEventListener('resize', () => chart.resize(window.innerWidth, window.innerHeight));
             window.addEventListener('unload', () => {
