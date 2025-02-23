@@ -40,7 +40,6 @@
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
-            let livePrices = [];
             let redrawTimeout = null;
 
             // Chart setup
@@ -52,7 +51,7 @@
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { 
                     timeVisible: true, 
-                    secondsVisible: true,
+                    secondsVisible: false, // Removed for cleaner look
                     borderColor: '#2A2A2A',
                     rightOffset: 10,
                     fixLeftEdge: false
@@ -74,13 +73,6 @@
                 wickUpColor: '#26a69a', wickDownColor: '#ef5350'
             });
 
-            const lineSeries = priceChart.addLineSeries({
-                color: '#00E676',
-                lineWidth: 1,
-                priceScaleId: 'right',
-                title: 'Live Price'
-            });
-
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
             const shortLiqSeries = liqChart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' } });
 
@@ -99,7 +91,7 @@
                 if (redrawTimeout) clearTimeout(redrawTimeout);
                 redrawTimeout = setTimeout(() => {
                     priceChart.timeScale().fitContent();
-                }, 250); // Faster debounce for snappier updates
+                }, 250);
             }
 
             // Fetch historical data from Kraken
@@ -135,6 +127,7 @@
                     candleSeries.setData(historicalData);
                     priceChart.timeScale().scrollToRealTime();
                     loadingOverlay.style.display = 'none';
+                    document.title = `BTC: $${historicalData[historicalData.length - 1].close.toFixed(2)}`;
                     return true;
                 } catch (error) {
                     console.error('Historical fetch failed:', error);
@@ -200,14 +193,12 @@
                         console.log('Live trade update:', { price, bar: currentBar });
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
-                            lineSeries.update({ time: timestamp, value: price });
-                            livePrices.push({ time: timestamp, value: price });
-                            if (livePrices.length > 1000) livePrices.shift();
                             debounceRedraw();
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + 300) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
+                            document.title = `BTC: $${price.toFixed(2)}`;
                         }
                     } catch (error) {
                         console.error('WebSocket processing error:', error);
@@ -279,6 +270,7 @@
                 const barTime = Math.floor(now / 300) * 300;
                 currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                 candleSeries.setData([currentBar]);
+                document.title = 'BTC: $0.00';
             }
 
             window.addEventListener('resize', () => {
