@@ -50,7 +50,7 @@
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { 
                     timeVisible: true, 
-                    secondsVisible: true, // Show seconds for precision
+                    secondsVisible: true,
                     borderColor: '#2A2A2A',
                     rightOffset: 10,
                     fixLeftEdge: false
@@ -98,7 +98,7 @@
                 const barsPerCall = 720;
                 const totalBars = 2016;
                 const callsNeeded = Math.ceil(totalBars / barsPerCall);
-                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60); // Corrected start
                 historicalData = [];
 
                 for (let i = 0; i < callsNeeded; i++) {
@@ -126,7 +126,7 @@
 
                         console.log(`Fetched ${mappedBars.length} valid bars`);
                         historicalData.push(...mappedBars);
-                        since = bars[bars.length - 1][0];
+                        since = mappedBars[mappedBars.length - 1].time + 300; // Step forward 5 min
                     } catch (error) {
                         console.error('Historical fetch failed:', error);
                         loadingText.textContent = 'Error loading history. Starting with live data...';
@@ -205,7 +205,6 @@
                             livePrices.push({ time: timestamp, value: price });
                             if (livePrices.length > 1000) livePrices.shift();
                             lineSeries.setData(livePrices);
-                            // Stronger redraw
                             priceChart.timeScale().fitContent();
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + 300) {
