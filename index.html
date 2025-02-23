@@ -134,11 +134,11 @@
             coinbaseWs.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.channel !== 'ticker' || data.events?.[0]?.tickers?.[0]?.product_id !== 'BTC-USD') return;
-
+                
                 const price = parseFloat(data.events[0].tickers[0].price);
                 const timestamp = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(timestamp / barInterval) * barInterval;
-
+                
                 priceLabel.textContent = `$${price.toFixed(2)}`;
 
                 if (!currentBar || currentBar.time !== barTime) {
