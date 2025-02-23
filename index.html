@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/chart-demo/scripts/lightweight-charts.js"></script>
     <style>
         body {
             margin: 0;
@@ -33,7 +33,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
-                console.error('Lightweight Charts not loaded - CDN failed');
+                console.error('Lightweight Charts not loaded - check scripts/lightweight-charts.js');
                 return;
             }
             console.log('Lightweight Charts version:', LightweightCharts.version());
