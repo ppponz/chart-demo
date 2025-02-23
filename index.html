@@ -64,30 +64,30 @@
             const longLiqSeries = chart.addScatterSeries({ color: 'rgba(255, 0, 0, 0.7)', radius: 2 });
             const shortLiqSeries = chart.addScatterSeries({ color: 'rgba(0, 255, 0, 0.7)', radius: 2 });
 
-            // Fetch max historical 5-min data from Coinbase (up to ~1 week)
+            // Fetch 1 week of historical 5-min data from Bybit
             async function fetchHistoricalData() {
                 try {
-                    const endTime = Math.floor(Date.now() / 1000);
-                    const maxBars = 2000; // ~1 week of 5-min bars
-                    const granularity = barInterval;
+                    const endTime = Math.floor(Date.now() / 1000) * 1000; // Current time in ms
+                    const weekInMs = 7 * 24 * 60 * 60 * 1000; // 1 week in ms
+                    const startTime = endTime - weekInMs;
                     let allBars = [];
-                    let startTime = endTime - (maxBars * granularity);
+                    let fromTime = startTime;
 
-                    while (startTime < endTime) {
+                    while (fromTime < endTime) {
                         const response = await fetch(
-                            `https://api.coinbase.com/v2/prices/BTC-USD/historic?start=${startTime}&end=${Math.min(startTime + 300 * granularity, endTime)}&granularity=${granularity}`
+                            `https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=5&start=${fromTime}&limit=200`
                         );
-                        if (!response.ok) throw new Error(`Coinbase API failed: ${response.status}`);
+                        if (!response.ok) throw new Error(`Bybit API failed: ${response.status}`);
                         const data = await response.json();
-                        const candles = data.data.prices.map(candle => ({
-                            time: Math.floor(new Date(candle.time).getTime() / 1000),
-                            open: parseFloat(candle.open),
-                            high: parseFloat(candle.high),
-                            low: parseFloat(candle.low),
-                            close: parseFloat(candle.close)
-                        })).reverse();
+                        const candles = data.result.list.map(candle => ({
+                            time: Math.floor(parseInt(candle[0]) / 1000), // Convert ms to s
+                            open: parseFloat(candle[1]),
+                            high: parseFloat(candle[2]),
+                            low: parseFloat(candle[3]),
+                            close: parseFloat(candle[4])
+                        })).reverse(); // Oldest to newest
                         allBars = allBars.concat(candles);
-                        startTime += 300 * granularity;
+                        fromTime = parseInt(data.result.list[0][0]) + barInterval * 1000; // Next start time in ms
                         await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit delay
                     }
 
@@ -101,7 +101,7 @@
                 }
             }
 
-            // Coinbase Advanced Trade WebSocket
+            // Coinbase Advanced Trade WebSocket for real-time updates
             const coinbaseWs = new WebSocket('wss://advanced-trade-ws.coinbase.com');
             coinbaseWs.onopen = () => {
                 console.log('Coinbase WebSocket connected');
