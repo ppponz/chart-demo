@@ -122,7 +122,10 @@
                     }
                 };
                 coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
-                coinbaseWs.onclose = () => console.log('Coinbase WS closed');
+                coinbaseWs.onclose = (event) => {
+                    console.log('Coinbase WS closed:', event);
+                    // Add reconnection logic or user notification here
+                };
 
                 const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
                 bybitWs.onopen = () => {
@@ -143,7 +146,10 @@
                     (side === 'Buy' ? longLiqSeries : shortLiqSeries).update(marker);
                 };
                 bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
-                bybitWs.onclose = () => console.log('Bybit WS closed');
+                bybitWs.onclose = (event) => {
+                    console.log('Bybit WS closed:', event);
+                    // Add reconnection logic or user notification here
+                };
 
                 window.addEventListener('resize', () => {
                     chart.resize(window.innerWidth, window.innerHeight);
