@@ -73,14 +73,14 @@
                     wickDownColor: '#ef5350'
                 });
 
-                const longLiqSeries = chart.addScatterSeries({
+                const longLiqSeries = chart.addLineSeries({
                     color: 'rgba(255, 0, 0, 0.7)',
-                    radius: 2
+                    lineWidth: 2
                 });
 
-                const shortLiqSeries = chart.addScatterSeries({
+                const shortLiqSeries = chart.addLineSeries({
                     color: 'rgba(0, 255, 0, 0.7)',
-                    radius: 2
+                    lineWidth: 2
                 });
 
                 const coinbaseWs = new WebSocket('wss://ws-feed.pro.coinbase.com');
