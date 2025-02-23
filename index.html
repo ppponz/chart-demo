@@ -83,7 +83,7 @@
                     lineWidth: 2
                 });
 
-                const coinbaseWs = new WebSocket('wss://ws-feed.pro.coinbase.com');
+                const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
                 coinbaseWs.onopen = () => {
                     console.log('Coinbase WebSocket connected');
                     coinbaseWs.send(JSON.stringify({
