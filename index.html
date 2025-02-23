@@ -25,11 +25,22 @@
             padding: 5px 10px;
             border-radius: 4px;
         }
+        #liq-stats {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            color: #D3D3D3;
+            font-size: 1em;
+            background: rgba(42, 42, 42, 0.8);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div id="chart-container"></div>
     <div id="price-label">$0</div>
+    <div id="liq-stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
@@ -40,9 +51,11 @@
 
             const container = document.getElementById('chart-container');
             const priceLabel = document.getElementById('price-label');
+            const liqStatsLabel = document.getElementById('liq-stats');
             const barInterval = 300; // 5 minutes in seconds
             let currentBar = null;
             let bars = [];
+            let liquidations = [];
 
             const chart = LightweightCharts.createChart(container, {
                 width: window.innerWidth,
