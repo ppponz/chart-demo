@@ -1,61 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC/USD Chart with Liquidations and Historical Data</title>
+    <title>Bybit 24-Hour Liquidations</title>
     <script src="https://unpkg.com/lightweight-charts@3.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        #chart-container {
-            width: 100vw;
-            height: 90vh;
-            background-color: #1E1E1E;
-        }
-        #price-label, #liq-stats, #hist-liq-stats {
-            position: absolute;
-            left: 10px;
-            color: #D3D3D3;
-            font-size: 1em;
-            background: rgba(42, 42, 42, 0.8);
-            padding: 5px 10px;
-            border-radius: 4px;
-            white-space: pre-wrap;
-        }
-        #price-label {
-            top: 10px;
-        }
-        #liq-stats {
-            top: 50px;
-        }
-        #hist-liq-stats {
-            bottom: 10px;
-        }
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #chart-container { width: 100vw; height: 50vh; background-color: #1E1E1E; } /* Smaller chart */
+        #stats { position: absolute; left: 10px; top: 10px; color: #D3D3D3; font-size: 1em; background: rgba(42, 42, 42, 0.8); padding: 5px 10px; border-radius: 4px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
     <div id="chart-container"></div>
-    <div id="price-label">$0</div>
-    <div id="liq-stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
-    <div id="hist-liq-stats">Loading historical liquidation data...</div>
+    <div id="stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             const container = document.getElementById('chart-container');
-            const priceLabel = document.getElementById('price-label');
-            const liqStatsLabel = document.getElementById('liq-stats');
-            const histLiqStatsLabel = document.getElementById('hist-liq-stats');
-
-            if (!container) {
-                console.error('Chart container not found!');
-                return;
-            }
+            const statsLabel = document.getElementById('stats');
 
             const chart = LightweightCharts.createChart(container, {
                 width: window.innerWidth,
-                height: window.innerHeight * 0.9,
+                height: window.innerHeight * 0.5, // Half screen height
                 layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false },
@@ -63,17 +27,8 @@
                     borderColor: '#2A2A2A', 
                     autoScale: true,
                     mode: LightweightCharts.PriceScaleMode.Normal,
-                    scaleMargins: { top: 0.1, bottom: 0.1 } // Prevent collapse to 0
+                    scaleMargins: { top: 0.1, bottom: 0.1 }
                 }
-            });
-
-            const barSeries = chart.addCandlestickSeries({
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderVisible: false,
-                wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350',
-                priceScaleId: 'right'
             });
 
             const longLiqSeries = chart.addHistogramSeries({ 
@@ -88,117 +43,8 @@
             });
 
             let liquidations = [];
-            let currentBar = null;
 
-            async function fetchHistoricalData() {
-                try {
-                    const endTime = Math.floor(Date.now() / 1000);
-                    const maxLookbackInMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-                    const startTime = endTime - Math.floor(maxLookbackInMs / 1000);
-                    let allBars = [];
-                    let fromTime = startTime;
-
-                    console.log('Fetching historical data from:', new Date(startTime * 1000), 'to', new Date(endTime * 1000));
-
-                    while (fromTime < endTime) {
-                        const url = `https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=5&start=${fromTime * 1000}&limit=200`;
-                        console.log('Fetching from URL:', url);
-                        const response = await fetch(url);
-                        if (!response.ok) throw new Error(`Bybit API failed: ${response.status} - ${await response.text()}`);
-                        const data = await response.json();
-
-                        console.log('Raw Bybit API response:', data);
-
-                        if (!data.result || !data.result.list || !Array.isArray(data.result.list)) {
-                            throw new Error('Invalid Bybit API response: ' + JSON.stringify(data));
-                        }
-
-                        const candles = data.result.list.map((candle, index) => {
-                            const time = Math.floor(parseInt(candle[0]) / 1000);
-                            const open = parseFloat(candle[1]);
-                            const high = parseFloat(candle[2]);
-                            const low = parseFloat(candle[3]);
-                            const close = parseFloat(candle[4]);
-                            if (isNaN(time) || isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) {
-                                console.warn(`Invalid candle at index ${index}:`, candle);
-                                return null;
-                            }
-                            return { time, open, high, low, close };
-                        }).filter(candle => candle !== null).reverse();
-
-                        console.log('Processed candles from this fetch:', candles.length, 'candles', candles.slice(0, 2));
-
-                        allBars = allBars.concat(candles);
-                        fromTime = Math.floor(parseInt(data.result.list[0][0]) / 1000) + 300;
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-
-                    console.log('Total processed historical bars:', allBars.length, 'bars', allBars.slice(0, 2));
-                    if (allBars.length > 0) {
-                        barSeries.setData(allBars);
-                        const lastBar = allBars[allBars.length - 1];
-                        priceLabel.textContent = `$${lastBar.close.toFixed(2)}`;
-                        chart.timeScale().fitContent(); // Fit all historical data initially
-                        chart.priceScale('right').applyOptions({ autoScale: true });
-                        console.log('Historical data set on chart, last bar:', lastBar);
-                    } else {
-                        console.error('No valid historical bars fetched');
-                        priceLabel.textContent = 'No historical data available';
-                    }
-                } catch (error) {
-                    console.error('Historical data fetch error:', error);
-                    priceLabel.textContent = 'Error loading historical data';
-                }
-            }
-
-            async function fetchHistoricalLiquidationData() {
-                histLiqStatsLabel.textContent = 'No historical liquidation data available.';
-            }
-
-            // Coinbase WebSocket
-            const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
-            coinbaseWs.onopen = () => {
-                console.log('Coinbase WebSocket connected');
-                coinbaseWs.send(JSON.stringify({
-                    type: 'subscribe',
-                    product_ids: ['BTC-USD'],
-                    channels: ['ticker']
-                }));
-            };
-            coinbaseWs.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                console.log('Coinbase WS message:', data);
-
-                if (data.type === 'ticker' && data.product_id === 'BTC-USD') {
-                    const price = parseFloat(data.price);
-                    const timestamp = Math.floor(Date.now() / 1000);
-                    const barTime = Math.floor(timestamp / 300) * 300;
-
-                    priceLabel.textContent = `$${price.toFixed(2)}`;
-
-                    if (!currentBar || currentBar.time !== barTime) {
-                        if (currentBar) {
-                            barSeries.update(currentBar);
-                            console.log('Updated previous bar:', currentBar);
-                        }
-                        currentBar = { time: barTime, open: price, high: price, low: price, close: price };
-                        barSeries.update(currentBar);
-                        console.log('New bar created and updated:', currentBar);
-                    } else {
-                        currentBar.high = Math.max(currentBar.high, price);
-                        currentBar.low = Math.min(currentBar.low, price);
-                        currentBar.close = price;
-                        barSeries.update(currentBar);
-                        console.log('Updated current bar:', currentBar);
-                    }
-                    chart.timeScale().scrollToRealTime(); // Focus on real-time after historical load
-                    chart.priceScale('right').applyOptions({ autoScale: true });
-                }
-            };
-            coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
-            coinbaseWs.onclose = () => console.log('Coinbase WS closed');
-
-            // Bybit WebSocket
+            // Bybit WebSocket for real-time liquidations
             const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
             bybitWs.onopen = () => {
                 console.log('Bybit WebSocket connected');
@@ -212,60 +58,73 @@
                 console.log('Bybit WS message:', data);
 
                 if (data.topic === 'liquidation.BTCUSDT' && data.data) {
-                    const { symbol, price, side, qty } = data.data;
+                    const { symbol, price, side, qty, time } = data.data;
                     if (!symbol.includes('BTCUSDT')) return;
 
-                    const timestamp = Math.floor(Date.now() / 1000);
+                    const timestamp = Math.floor(parseInt(time) / 1000);
                     const liqValue = parseFloat(qty) || 0;
-                    const threshold = 10;
-
                     const series = side === 'Buy' ? longLiqSeries : shortLiqSeries;
-                    const color = liqValue > threshold ? (side === 'Buy' ? '#FF5555' : '#55FF55') : series.options().color;
+                    const color = liqValue > 10 ? (side === 'Buy' ? '#FF5555' : '#55FF55') : series.options().color;
 
                     series.update({
                         time: timestamp,
-                        value: liqValue * 10000, // Scaled for visibility
+                        value: liqValue * 10000, // Scale for visibility
                         color: color
                     });
 
                     liquidations.push({ time: timestamp, qty: liqValue, side });
-                    updateLiqStats();
-                    chart.priceScale('right').applyOptions({ autoScale: true });
+                    updateStatsAndChart();
                 }
             };
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
             bybitWs.onclose = () => console.log('Bybit WS closed');
 
-            function updateLiqStats() {
+            function updateStatsAndChart() {
                 const now = Date.now() / 1000;
-                const cutoff = now - 24 * 60 * 60;
+                const cutoff = now - 24 * 60 * 60; // Last 24 hours
                 liquidations = liquidations.filter(liq => liq.time >= cutoff);
 
                 const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
                 const longCount = liquidations.filter(liq => liq.side === 'Buy').length;
                 const shortCount = liquidations.filter(liq => liq.side === 'Sell').length;
 
-                liqStatsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
+                statsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
+
+                // Redraw chart with only 24-hour data
+                longLiqSeries.setData(liquidations
+                    .filter(liq => liq.side === 'Buy')
+                    .map(liq => ({ time: liq.time, value: liq.qty * 10000 })));
+                shortLiqSeries.setData(liquidations
+                    .filter(liq => liq.side === 'Sell')
+                    .map(liq => ({ time: liq.time, value: liq.qty * 10000 })));
+                chart.timeScale().fitContent();
+                chart.priceScale('right').applyOptions({ autoScale: true });
             }
 
-            // Initial data load
-            await fetchHistoricalData();
-            await fetchHistoricalLiquidationData();
+            // Daily reset at midnight UTC
+            function checkDailyReset() {
+                const now = new Date();
+                const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+                const timeToMidnight = nextMidnight - now;
 
-            // Periodic updates
-            setInterval(updateLiqStats, 60000);
+                setTimeout(() => {
+                    console.log('Resetting liquidations at midnight UTC...');
+                    liquidations = [];
+                    updateStatsAndChart();
+                    checkDailyReset(); // Schedule next reset
+                }, timeToMidnight);
+            }
 
-            // Handle window resize
+            // Initial setup
+            updateStatsAndChart();
+            checkDailyReset();
+
             window.addEventListener('resize', () => {
-                chart.resize(window.innerWidth, window.innerHeight * 0.9);
+                chart.resize(window.innerWidth, window.innerHeight * 0.5);
                 chart.priceScale('right').applyOptions({ autoScale: true });
             });
 
-            // Cleanup on unload
-            window.addEventListener('unload', () => {
-                coinbaseWs.close();
-                bybitWs.close();
-            });
+            window.addEventListener('unload', () => bybitWs.close());
         });
     </script>
 </body>
