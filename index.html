@@ -59,7 +59,11 @@
                 layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false },
-                rightPriceScale: { borderColor: '#2A2A2A' }
+                rightPriceScale: { 
+                    borderColor: '#2A2A2A', 
+                    autoScale: true, // Ensure scale adjusts to data
+                    mode: LightweightCharts.PriceScaleMode.Normal // Normal mode for price
+                }
             });
 
             const barSeries = chart.addCandlestickSeries({
@@ -67,11 +71,20 @@
                 downColor: '#ef5350',
                 borderVisible: false,
                 wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350'
+                wickDownColor: '#ef5350',
+                priceScaleId: 'right' // Explicitly tie to right scale
             });
 
-            const longLiqSeries = chart.addHistogramSeries({ color: 'rgba(255, 0, 0, 0.7)', priceLineVisible: false });
-            const shortLiqSeries = chart.addHistogramSeries({ color: 'rgba(0, 255, 0, 0.7)', priceLineVisible: false });
+            const longLiqSeries = chart.addHistogramSeries({ 
+                color: 'rgba(255, 0, 0, 0.7)', 
+                priceLineVisible: false,
+                priceScaleId: 'right' // Share scale with candlesticks
+            });
+            const shortLiqSeries = chart.addHistogramSeries({ 
+                color: 'rgba(0, 255, 0, 0.7)', 
+                priceLineVisible: false,
+                priceScaleId: 'right' // Share scale with candlesticks
+            });
 
             let liquidations = [];
             let currentBar = null;
@@ -116,6 +129,7 @@
                         const lastBar = allBars[allBars.length - 1];
                         priceLabel.textContent = `$${lastBar.close.toFixed(2)}`;
                         chart.timeScale().fitContent();
+                        chart.priceScale('right').applyOptions({ autoScale: true }); // Force rescale
                         console.log('Historical data set on chart, last bar:', lastBar);
                     } else {
                         console.error('No historical bars fetched');
@@ -158,7 +172,8 @@
                             console.log('Updated previous bar:', currentBar);
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
-                        console.log('New bar created:', currentBar);
+                        barSeries.update(currentBar); // Update immediately for visibility
+                        console.log('New bar created and updated:', currentBar);
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
@@ -166,6 +181,7 @@
                         barSeries.update(currentBar);
                         console.log('Updated current bar:', currentBar);
                     }
+                    chart.priceScale('right').applyOptions({ autoScale: true }); // Rescale after update
                 }
             };
             coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
@@ -203,6 +219,7 @@
 
                     liquidations.push({ time: timestamp, qty: liqValue, side });
                     updateLiqStats();
+                    chart.priceScale('right').applyOptions({ autoScale: true }); // Rescale for liquidations
                 }
             };
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
@@ -230,6 +247,7 @@
             // Handle window resize
             window.addEventListener('resize', () => {
                 chart.resize(window.innerWidth, window.innerHeight * 0.9);
+                chart.priceScale('right').applyOptions({ autoScale: true });
             });
 
             // Cleanup on unload
