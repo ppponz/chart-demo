@@ -181,10 +181,13 @@
                 priceFormat: { type: 'volume' }
             });
 
-            // Fetch historical data
+            // Fetch historical data with exponential backoff
             async function fetchHistoricalData() {
-                let retries = 3;
-                while (retries > 0) {
+                const maxRetries = 5;
+                let retryCount = 0;
+                let delay = 1000; // 1 second
+
+                while (retryCount < maxRetries) {
                     try {
                         const endTime = new Date();
                         const startTime = new Date(endTime - (300 * 300 * 1000));
@@ -215,8 +218,10 @@
                         break;
                     } catch (error) {
                         console.error('Error fetching historical data:', error);
-                        retries--;
-                        if (retries === 0) {
+                        retryCount++;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                        if (retryCount === maxRetries) {
                             document.getElementById('loading-text').textContent = 
                                 'Error loading historical data. Starting with live data only...';
                             setTimeout(() => {
