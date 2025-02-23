@@ -139,7 +139,7 @@
                 return false;
             }
 
-            // Kraken WebSocket
+            // Kraken WebSocket with ticker channel
             function connectKrakenWebSocket() {
                 const ws = new WebSocket('wss://ws.kraken.com');
                 
@@ -148,7 +148,7 @@
                     ws.send(JSON.stringify({
                         event: 'subscribe',
                         pair: ['XBT/USD'],
-                        subscription: { name: 'ohlc', interval: 5 }
+                        subscription: { name: 'ticker' }
                     }));
                 };
 
@@ -157,47 +157,47 @@
                         const data = JSON.parse(event.data);
                         console.log('Raw WebSocket message:', data);
 
-                        if (!Array.isArray(data) || data.length < 2 || !Array.isArray(data[1])) {
-                            console.log('Skipping non-OHLC message');
+                        if (!Array.isArray(data) || !data[1] || typeof data[1] !== 'object' || data[2] !== 'ticker') {
+                            console.log('Skipping non-ticker message');
                             return;
                         }
 
-                        const ohlc = data[1];
-                        if (ohlc.length < 6) {
-                            console.warn('Incomplete OHLC data:', ohlc);
+                        const ticker = data[1];
+                        const price = parseFloat(ticker.c[0]); // Last trade price
+                        if (!Number.isFinite(price)) {
+                            console.warn('Invalid ticker price:', ticker.c[0]);
                             return;
                         }
 
-                        const bar = {
-                            time: parseInt(ohlc[1], 10),
-                            open: parseFloat(ohlc[2]),
-                            high: parseFloat(ohlc[3]),
-                            low: parseFloat(ohlc[4]),
-                            close: parseFloat(ohlc[5])
-                        };
+                        const now = Math.floor(Date.now() / 1000);
+                        const barTime = Math.floor(now / 300) * 300; // Align to 5-minute boundary
 
-                        if (isValidBar(bar)) {
-                            console.log('Valid WebSocket bar:', bar);
-                            if (!currentBar || bar.time > currentBar.time) {
-                                if (currentBar && isValidBar(currentBar)) {
-                                    console.log('Updating previous bar:', currentBar);
-                                    candleSeries.update(currentBar);
-                                }
-                                currentBar = bar;
-                            } else {
-                                currentBar = { ...currentBar, ...bar };
+                        if (!currentBar || currentBar.time !== barTime) {
+                            if (currentBar && isValidBar(currentBar)) {
+                                console.log('Closing previous bar:', currentBar);
+                                candleSeries.update(currentBar);
                             }
-                            console.log('Updating current bar:', currentBar);
-                            candleSeries.update(currentBar);
-                            // Scroll to the latest bar
-                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
-                            const visibleFrom = Math.min(lastHistoricalTime, currentBar.time - 3600); // Last hour
-                            priceChart.timeScale().setVisibleRange({
-                                from: visibleFrom,
-                                to: currentBar.time + 600 // 10 minutes ahead
-                            });
+                            currentBar = {
+                                time: barTime,
+                                open: price,
+                                high: price,
+                                low: price,
+                                close: price
+                            };
                         } else {
-                            console.warn('Invalid WebSocket bar:', bar);
+                            currentBar.high = Math.max(currentBar.high, price);
+                            currentBar.low = Math.min(currentBar.low, price);
+                            currentBar.close = price;
+                        }
+
+                        console.log('Live ticker update:', { price, bar: currentBar });
+                        if (isValidBar(currentBar)) {
+                            candleSeries.update(currentBar);
+                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
+                            priceChart.timeScale().setVisibleRange({
+                                from: Math.min(lastHistoricalTime, currentBar.time - 3600),
+                                to: currentBar.time + 600
+                            });
                         }
                     } catch (error) {
                         console.error('WebSocket processing error:', error);
