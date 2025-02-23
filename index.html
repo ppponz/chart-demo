@@ -192,40 +192,47 @@
 
             // Fetch historical data
             async function fetchHistoricalData() {
-                try {
-                    const endTime = new Date();
-                    const startTime = new Date(endTime - (300 * 300 * 1000));
-                    
-                    const response = await fetch(
-                        `https://api.pro.coinbase.com/products/BTC-USD/candles?` +
-                        `start=${startTime.toISOString()}&` +
-                        `end=${endTime.toISOString()}&` +
-                        `granularity=300`
-                    );
-                    
-                    if (!response.ok) throw new Error('Failed to fetch historical data');
-
-                    const data = await response.json();
-                    
-                    historicalData = data.map(candle => ({
-                        time: candle[0],
-                        open: candle[3],
-                        high: candle[2],
-                        low: candle[1],
-                        close: candle[4]
-                    })).reverse();
-
-                    candleSeries.setData(historicalData);
-                    priceChart.timeScale().fitContent();
-                    
-                    document.getElementById('loading-overlay').style.display = 'none';
-                } catch (error) {
-                    console.error('Error fetching historical data:', error);
-                    document.getElementById('loading-text').textContent = 
-                        'Error loading historical data. Starting with live data only...';
-                    setTimeout(() => {
+                let retries = 3;
+                while (retries > 0) {
+                    try {
+                        const endTime = new Date();
+                        const startTime = new Date(endTime - (300 * 300 * 1000));
+                        
+                        const response = await fetch(
+                            `https://api.pro.coinbase.com/products/BTC-USD/candles?` +
+                            `start=${startTime.toISOString()}&` +
+                            `end=${endTime.toISOString()}&` +
+                            `granularity=300`
+                        );
+                        
+                        if (!response.ok) throw new Error('Failed to fetch historical data');
+                        
+                        const data = await response.json();
+                        
+                        historicalData = data.map(candle => ({
+                            time: candle[0],
+                            open: candle[3],
+                            high: candle[2],
+                            low: candle[1],
+                            close: candle[4]
+                        })).reverse();
+                        
+                        candleSeries.setData(historicalData);
+                        priceChart.timeScale().fitContent();
+                        
                         document.getElementById('loading-overlay').style.display = 'none';
-                    }, 2000);
+                        break;
+                    } catch (error) {
+                        console.error('Error fetching historical data:', error);
+                        retries--;
+                        if (retries === 0) {
+                            document.getElementById('loading-text').textContent = 
+                                'Error loading historical data. Starting with live data only...';
+                            setTimeout(() => {
+                                document.getElementById('loading-overlay').style.display = 'none';
+                            }, 2000);
+                        }
+                    }
                 }
             }
 
