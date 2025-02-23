@@ -41,6 +41,7 @@
             let liquidations = [];
             let currentBar = null;
             let livePrices = [];
+            let redrawTimeout = null;
 
             // Chart setup
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
@@ -83,59 +84,49 @@
 
             // Validate bar data
             function isValidBar(bar) {
-                const valid = bar && 
-                    bar.time !== null && bar.time !== undefined && Number.isFinite(bar.time) &&
-                    bar.open !== null && bar.open !== undefined && Number.isFinite(bar.open) &&
-                    bar.high !== null && bar.high !== undefined && Number.isFinite(bar.high) &&
-                    bar.low !== null && bar.low !== undefined && Number.isFinite(bar.low) &&
-                    bar.close !== null && bar.close !== undefined && Number.isFinite(bar.close);
-                if (!valid) console.warn('Invalid bar detected:', bar);
-                return valid;
+                return bar && 
+                    Number.isFinite(bar.time) &&
+                    Number.isFinite(bar.open) &&
+                    Number.isFinite(bar.high) &&
+                    Number.isFinite(bar.low) &&
+                    Number.isFinite(bar.close);
+            }
+
+            // Debounce redraw
+            function debounceRedraw() {
+                if (redrawTimeout) clearTimeout(redrawTimeout);
+                redrawTimeout = setTimeout(() => {
+                    priceChart.timeScale().fitContent();
+                }, 500);
             }
 
             // Fetch historical data from Kraken
             async function fetchHistoricalData() {
-                const barsPerCall = 720;
-                const totalBars = 2016;
-                const callsNeeded = Math.ceil(totalBars / barsPerCall);
-                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60); // Corrected start
-                historicalData = [];
+                const totalBars = 2016; // 7 days of 5-min bars
+                const startTime = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+                try {
+                    const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${startTime}`;
+                    console.log(`Fetching: ${url}`);
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
 
-                for (let i = 0; i < callsNeeded; i++) {
-                    try {
-                        const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${since}`;
-                        console.log(`Fetching: ${url}`);
-                        const response = await fetch(url);
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
-
-                        if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
-                        const bars = data.result['XXBTZUSD'] || [];
-                        if (!bars.length) {
-                            console.warn('No bars returned for this range');
-                            break;
-                        }
-
-                        const mappedBars = bars.map(bar => ({
-                            time: parseInt(bar[0], 10),
-                            open: parseFloat(bar[1]),
-                            high: parseFloat(bar[2]),
-                            low: parseFloat(bar[3]),
-                            close: parseFloat(bar[4])
-                        })).filter(isValidBar);
-
-                        console.log(`Fetched ${mappedBars.length} valid bars`);
-                        historicalData.push(...mappedBars);
-                        since = mappedBars[mappedBars.length - 1].time + 300; // Step forward 5 min
-                    } catch (error) {
-                        console.error('Historical fetch failed:', error);
-                        loadingText.textContent = 'Error loading history. Starting with live data...';
-                        setTimeout(() => { loadingOverlay.style.display = 'none'; }, 2000);
+                    if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
+                    const bars = data.result['XXBTZUSD'] || [];
+                    if (!bars.length) {
+                        console.warn('No bars returned');
                         return false;
                     }
-                }
 
-                if (historicalData.length > 0) {
+                    historicalData = bars.map(bar => ({
+                        time: parseInt(bar[0], 10),
+                        open: parseFloat(bar[1]),
+                        high: parseFloat(bar[2]),
+                        low: parseFloat(bar[3]),
+                        close: parseFloat(bar[4])
+                    })).filter(isValidBar);
+
+                    console.log(`Fetched ${historicalData.length} valid bars`);
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     console.log('Processed historical data:', historicalData.slice(0, 5));
@@ -144,14 +135,19 @@
                     priceChart.timeScale().scrollToRealTime();
                     loadingOverlay.style.display = 'none';
                     return true;
+                } catch (error) {
+                    console.error('Historical fetch failed:', error);
+                    loadingText.textContent = 'Error loading history. Starting with live data...';
+                    setTimeout(() => { loadingOverlay.style.display = 'none'; }, 2000);
+                    return false;
                 }
-                return false;
             }
 
             // Kraken WebSocket with trade channel
             function connectKrakenWebSocket() {
                 const ws = new WebSocket('wss://ws.kraken.com');
-                
+                let reconnectDelay = 2000;
+
                 ws.onopen = () => {
                     console.log('Kraken WebSocket connected');
                     ws.send(JSON.stringify({
@@ -159,6 +155,7 @@
                         pair: ['XBT/USD'],
                         subscription: { name: 'trade' }
                     }));
+                    reconnectDelay = 2000; // Reset on success
                 };
 
                 ws.onmessage = (event) => {
@@ -202,10 +199,10 @@
                         console.log('Live trade update:', { price, bar: currentBar });
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
+                            lineSeries.update({ time: timestamp, value: price });
                             livePrices.push({ time: timestamp, value: price });
                             if (livePrices.length > 1000) livePrices.shift();
-                            lineSeries.setData(livePrices);
-                            priceChart.timeScale().fitContent();
+                            debounceRedraw();
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + 300) {
                                 priceChart.timeScale().scrollToRealTime();
@@ -218,8 +215,9 @@
 
                 ws.onerror = (error) => console.error('Kraken WebSocket error:', error);
                 ws.onclose = () => {
-                    console.log('Kraken WebSocket closed. Reconnecting...');
-                    setTimeout(connectKrakenWebSocket, 2000);
+                    console.log(`Kraken WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+                    setTimeout(connectKrakenWebSocket, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 16000); // Exponential backoff, cap at 16s
                 };
                 return ws;
             }
@@ -227,10 +225,14 @@
             // Bybit WebSocket for liquidations
             function connectBybitWebSocket() {
                 const ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
+                let reconnectDelay = 2000;
+
                 ws.onopen = () => {
                     console.log('Bybit WebSocket connected');
                     ws.send(JSON.stringify({ op: 'subscribe', args: ['liquidation.BTCUSDT'] }));
+                    reconnectDelay = 2000;
                 };
+
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     if (data.topic === 'liquidation.BTCUSDT' && data.data) {
@@ -241,8 +243,13 @@
                         updateLiquidationStats();
                     }
                 };
+
                 ws.onerror = (error) => console.error('Bybit WebSocket error:', error);
-                ws.onclose = () => setTimeout(connectBybitWebSocket, 2000);
+                ws.onclose = () => {
+                    console.log(`Bybit WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+                    setTimeout(connectBybitWebSocket, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 16000);
+                };
                 return ws;
             }
 
