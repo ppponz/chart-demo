@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC/USD 5-min Chart with Liquidation Stats</title>
+    <title>BTC/USD 5-min Chart with Liquidations</title>
     <script src="https://unpkg.com/lightweight-charts@3.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
@@ -9,12 +9,11 @@
             padding: 0;
             overflow: hidden;
             font-family: sans-serif;
-            background-color: #1A1A1A !important;
         }
         #chart-container {
             width: 100vw;
             height: 100vh;
-            background-color: #1A1A1A !important;
+            background-color: #1E1E1E;
         }
         #price-label {
             position: absolute;
@@ -26,51 +25,30 @@
             padding: 5px 10px;
             border-radius: 4px;
         }
-        #liq-stats {
-            position: absolute;
-            top: 40px;
-            left: 10px;
-            color: #D3D3D3;
-            font-size: 1em;
-            background: rgba(42, 42, 42, 0.8);
-            padding: 5px 10px;
-            border-radius: 4px;
-            white-space: pre-wrap;
-        }
     </style>
 </head>
 <body>
     <div id="chart-container"></div>
     <div id="price-label">$0</div>
-    <div id="liq-stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
-                console.error('Lightweight Charts not loaded');
+                console.error('Lightweight Charts not loaded - check scripts/lightweight-charts.js');
                 return;
             }
             console.log('Lightweight Charts version:', LightweightCharts.version());
 
             const container = document.getElementById('chart-container');
             const priceLabel = document.getElementById('price-label');
-            const liqStatsLabel = document.getElementById('liq-stats');
             const barInterval = 300; // 5 minutes in seconds
             let currentBar = null;
             let bars = [];
-            let liquidations = [];
 
             const chart = LightweightCharts.createChart(container, {
                 width: window.innerWidth,
                 height: window.innerHeight,
-                layout: { 
-                    backgroundColor: '#1A1A1A',
-                    background: { color: '#1A1A1A' },
-                    textColor: '#D3D3D3' 
-                },
-                grid: { 
-                    vertLines: { color: '#333333', visible: true },
-                    horzLines: { color: '#333333', visible: true } 
-                },
+                layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false },
                 rightPriceScale: { borderColor: '#2A2A2A' }
             });
@@ -83,33 +61,13 @@
                 wickDownColor: '#ef5350'
             });
 
-            const longLiqSeries = chart.addHistogramSeries({ 
-                color: 'rgba(255, 0, 0, 0.7)', 
-                priceLineVisible: false,
-                priceFormat: { type: 'volume' }
-            });
-            const shortLiqSeries = chart.addHistogramSeries({ 
-                color: 'rgba(0, 255, 0, 0.7)', 
-                priceLineVisible: false,
-                priceFormat: { type: 'volume' }
-            });
-
-            function updateLiqStats() {
-                const now = Date.now() / 1000;
-                const cutoff = now - 24 * 60 * 60;
-                liquidations = liquidations.filter(liq => liq.time >= cutoff);
-
-                const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
-                const longCount = liquidations.filter(liq => liq.side === 'Buy').length;
-                const shortCount = liquidations.filter(liq => liq.side === 'Sell').length;
-
-                liqStatsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
-            }
+            const longLiqSeries = chart.addHistogramSeries({ color: 'rgba(255, 0, 0, 0.7)', priceLineVisible: false });
+            const shortLiqSeries = chart.addHistogramSeries({ color: 'rgba(0, 255, 0, 0.7)', priceLineVisible: false });
 
             async function fetchHistoricalData() {
                 try {
-                    const endTime = Math.floor(Date.now() / 1000) * 1000;
-                    const weekInMs = 7 * 24 * 60 * 60 * 1000;
+                    const endTime = Math.floor(Date.now() / 1000) * 1000; // Current time in ms
+                    const weekInMs = 7 * 24 * 60 * 60 * 1000; // 1 week in ms
                     const startTime = endTime - weekInMs;
                     let allBars = [];
                     let fromTime = startTime;
@@ -121,15 +79,15 @@
                         if (!response.ok) throw new Error(`Bybit API failed: ${response.status}`);
                         const data = await response.json();
                         const candles = data.result.list.map(candle => ({
-                            time: Math.floor(parseInt(candle[0]) / 1000),
+                            time: Math.floor(parseInt(candle[0]) / 1000), // Convert ms to s
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
                             close: parseFloat(candle[4])
-                        })).reverse();
+                        })).reverse(); // Oldest to newest
                         allBars = allBars.concat(candles);
-                        fromTime = parseInt(data.result.list[0][0]) + barInterval * 1000;
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        fromTime = parseInt(data.result.list[0][0]) + barInterval * 1000; // Next start time in ms
+                        await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit delay
                     }
 
                     bars = allBars;
@@ -142,6 +100,7 @@
                 }
             }
 
+            // Coinbase Advanced Trade WebSocket for real-time updates
             const coinbaseWs = new WebSocket('wss://advanced-trade-ws.coinbase.com');
             coinbaseWs.onopen = () => {
                 console.log('Coinbase WebSocket connected');
@@ -179,14 +138,14 @@
                 console.log('Bybit WebSocket connected');
                 bybitWs.send(JSON.stringify({
                     op: 'subscribe',
-                    args: ['liquidation.BTCUSDT'] // Per `aggr.trade` and v5 docs for BTCUSDT.P
+                    args: ['liquidation.linear']
                 }));
             };
             bybitWs.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 console.log('Bybit WS message:', data);
 
-                if (data.topic === 'liquidation.BTCUSDT' && data.data) {
+                if (data.topic === 'liquidation.linear' && data.data) {
                     const { symbol, price, side, qty } = data.data;
                     console.log(`Liquidation: Symbol=${symbol}, Price=${price}, Side=${side}, Qty=${qty}`);
 
@@ -213,6 +172,18 @@
             };
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
             bybitWs.onclose = () => console.log('Bybit WS closed');
+
+            function updateLiqStats() {
+                const now = Date.now() / 1000;
+                const cutoff = now - 24 * 60 * 60;
+                liquidations = liquidations.filter(liq => liq.time >= cutoff);
+
+                const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
+                const longCount = liquidations.filter(liq => liq.side === 'Buy').length;
+                const shortCount = liquidations.filter(liq => liq.side === 'Sell').length;
+
+                liqStatsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
+            }
 
             setInterval(updateLiqStats, 60000);
 
