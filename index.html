@@ -43,7 +43,6 @@
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes in seconds
             const MAX_BARS = 2016; // 7 days of 5-min bars
-            const REDRAW_DELAY = 250; // ms
             const TITLE_DELAY = 1000; // 1s debounce for tab title
             const MAX_RECONNECT_DELAY = 16000; // 16s
 
@@ -63,17 +62,12 @@
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
-            let redrawTimeout = null;
             let titleTimeout = null;
             let tradeCount = 0;
             let lastLogTime = Date.now();
 
             // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
-            const debounceRedraw = () => {
-                if (redrawTimeout) clearTimeout(redrawTimeout);
-                redrawTimeout = setTimeout(() => priceChart.timeScale().fitContent(), REDRAW_DELAY);
-            };
             const debounceTitle = (price) => {
                 if (titleTimeout) clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => document.title = `BTC: $${price.toFixed(2)}`, TITLE_DELAY);
@@ -251,7 +245,6 @@
                         logTradeCount();
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
-                            debounceRedraw();
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
