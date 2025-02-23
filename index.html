@@ -61,7 +61,7 @@
                 wickDownColor: '#ef5350'
             });
 
-            // Since the addScatterSeries method is not available, use addHistogramSeries as an alternative for liquidations
+            // Use addHistogramSeries as an alternative for liquidations
             const longLiqSeries = chart.addHistogramSeries({ color: 'rgba(255, 0, 0, 0.7)', priceLineVisible: false });
             const shortLiqSeries = chart.addHistogramSeries({ color: 'rgba(0, 255, 0, 0.7)', priceLineVisible: false });
 
