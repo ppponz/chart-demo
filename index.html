@@ -17,7 +17,8 @@
         .stat-label { font-size: 0.9em; color: #888; }
         .stat-value { font-size: 1.2em; margin-top: 5px; }
         .long { color: #26a69a; } .short { color: #ef5350; }
-        #status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
+        #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
+        #bybit-status { position: fixed; top: 40px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -31,7 +32,8 @@
         <div id="price-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
     </div>
-    <div id="status">Kraken: Connecting</div>
+    <div id="kraken-status">Kraken: Connecting</div>
+    <div id="bybit-status">Bybit: Connecting</div>
     <script>
         (async () => {
             // Constants
@@ -51,7 +53,8 @@
                 liqChart: document.getElementById('liq-chart'),
                 loadingOverlay: document.getElementById('loading-overlay'),
                 loadingText: document.getElementById('loading-text'),
-                status: document.getElementById('status'),
+                krakenStatus: document.getElementById('kraken-status'),
+                bybitStatus: document.getElementById('bybit-status'),
                 longLiq: document.getElementById('long-liq'),
                 shortLiq: document.getElementById('short-liq')
             };
@@ -174,16 +177,14 @@
             }
 
             // WebSocket handler factory
-            function createWebSocket(url, onOpen, onMessage, label) {
+            function createWebSocket(url, onOpen, onMessage, label, statusElement) {
                 let ws = new WebSocket(url);
                 let reconnectDelay = 2000;
 
                 ws.onopen = () => {
                     console.log(`${label} WebSocket connected`);
-                    if (label === 'Kraken') {
-                        elements.status.textContent = 'Kraken: Connected';
-                        elements.status.style.color = '#00E676';
-                    }
+                    statusElement.textContent = `${label}: Connected`;
+                    statusElement.style.color = '#00E676';
                     onOpen(ws);
                     reconnectDelay = 2000;
                 };
@@ -192,20 +193,16 @@
 
                 ws.onerror = (error) => {
                     console.error(`${label} WebSocket error:`, error);
-                    if (label === 'Kraken') {
-                        elements.status.textContent = 'Kraken: Error';
-                        elements.status.style.color = '#ef5350';
-                    }
+                    statusElement.textContent = `${label}: Error`;
+                    statusElement.style.color = '#ef5350';
                 };
 
                 ws.onclose = () => {
                     console.log(`${label} WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
-                    if (label === 'Kraken') {
-                        elements.status.textContent = `Kraken: Reconnecting (${reconnectDelay/1000}s)`;
-                        elements.status.style.color = '#ef5350';
-                    }
+                    statusElement.textContent = `${label}: Reconnecting (${reconnectDelay/1000}s)`;
+                    statusElement.style.color = '#ef5350';
                     setTimeout(() => {
-                        ws = createWebSocket(url, onOpen, onMessage, label);
+                        ws = createWebSocket(url, onOpen, onMessage, label, statusElement);
                     }, reconnectDelay);
                     reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
                 };
@@ -259,13 +256,14 @@
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
-                            debounceTitle(price); // Throttled tab update
+                            debounceTitle(price);
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
                     }
                 },
-                'Kraken'
+                'Kraken',
+                elements.krakenStatus
             );
 
             // Bybit WebSocket
@@ -286,7 +284,8 @@
                         console.error('Bybit WebSocket processing error:', error);
                     }
                 },
-                'Bybit'
+                'Bybit',
+                elements.bybitStatus
             );
 
             function updateLiquidationStats() {
