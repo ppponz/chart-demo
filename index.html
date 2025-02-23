@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
-    <!-- Use the updated CDN link -->
+    <!-- Use the updated CDN link for LightweightCharts -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.min.js"></script>
     <style>
         body {
@@ -39,6 +39,12 @@
                 return;
             }
             console.log('Lightweight Charts version:', LightweightCharts.version());
+
+            // Check for required methods
+            if (!LightweightCharts.createChart || !LightweightCharts.createChart.prototype.addCandlestickSeries || !LightweightCharts.createChart.prototype.addScatterSeries) {
+                console.error('Lightweight Charts is missing required methods');
+                return;
+            }
 
             const container = document.getElementById('chart-container');
             const priceLabel = document.getElementById('price-label');
