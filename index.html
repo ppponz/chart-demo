@@ -1,26 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Bybit 24-Hour Liquidations</title>
+    <title>Coinbase 5m & Bybit 24h Liquidations</title>
     <script src="https://unpkg.com/lightweight-charts@3.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
-        #chart-container { width: 100vw; height: 50vh; background-color: #1E1E1E; } /* Smaller chart */
-        #stats { position: absolute; left: 10px; top: 10px; color: #D3D3D3; font-size: 1em; background: rgba(42, 42, 42, 0.8); padding: 5px 10px; border-radius: 4px; white-space: pre-wrap; }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            background-color: #1E1E1E; /* Grok-inspired dark background */
+            color: #D3D3D3; /* Light text for contrast */
+        }
+        #container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        #header {
+            text-align: center;
+            padding: 10px;
+            background: rgba(42, 42, 42, 0.8);
+            border-radius: 8px;
+        }
+        #header h1 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #00E676; /* Bright accent for title */
+        }
+        #chart-container {
+            height: 60vh; /* Cleaner height */
+            background-color: #252525; /* Slightly lighter panel */
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        #stats-panel {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .stat-box {
+            flex: 1;
+            padding: 15px;
+            background: rgba(42, 42, 42, 0.8);
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            font-size: 1em;
+            white-space: pre-wrap;
+        }
+        #price-box { color: #00E676; } /* Green for price */
+        #liq-box { color: #FF5252; } /* Red for liquidations */
     </style>
 </head>
 <body>
-    <div id="chart-container"></div>
-    <div id="stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
+    <div id="container">
+        <div id="header">
+            <h1>Coinbase 5m Bars & Bybit 24h Liquidations</h1>
+        </div>
+        <div id="chart-container"></div>
+        <div id="stats-panel">
+            <div id="price-box" class="stat-box">Price: $0</div>
+            <div id="liq-box" class="stat-box">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
+        </div>
+    </div>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const container = document.getElementById('chart-container');
-            const statsLabel = document.getElementById('stats');
+            const priceBox = document.getElementById('price-box');
+            const liqBox = document.getElementById('liq-box');
 
             const chart = LightweightCharts.createChart(container, {
-                width: window.innerWidth,
-                height: window.innerHeight * 0.5, // Half screen height
-                layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' },
+                width: container.offsetWidth,
+                height: container.offsetHeight,
+                layout: { background: { color: '#252525' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false },
                 rightPriceScale: { 
@@ -29,6 +86,15 @@
                     mode: LightweightCharts.PriceScaleMode.Normal,
                     scaleMargins: { top: 0.1, bottom: 0.1 }
                 }
+            });
+
+            const barSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+                priceScaleId: 'right'
             });
 
             const longLiqSeries = chart.addHistogramSeries({ 
@@ -43,8 +109,45 @@
             });
 
             let liquidations = [];
+            let currentBar = null;
 
-            // Bybit WebSocket for real-time liquidations
+            // Coinbase WebSocket
+            const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+            coinbaseWs.onopen = () => {
+                console.log('Coinbase WebSocket connected');
+                coinbaseWs.send(JSON.stringify({
+                    type: 'subscribe',
+                    product_ids: ['BTC-USD'],
+                    channels: ['ticker']
+                }));
+            };
+            coinbaseWs.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'ticker' && data.product_id === 'BTC-USD') {
+                    const price = parseFloat(data.price);
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    const barTime = Math.floor(timestamp / 300) * 300;
+
+                    priceBox.textContent = `Price: $${price.toFixed(2)}`;
+
+                    if (!currentBar || currentBar.time !== barTime) {
+                        if (currentBar) barSeries.update(currentBar);
+                        currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                        barSeries.update(currentBar);
+                    } else {
+                        currentBar.high = Math.max(currentBar.high, price);
+                        currentBar.low = Math.min(currentBar.low, price);
+                        currentBar.close = price;
+                        barSeries.update(currentBar);
+                    }
+                    chart.timeScale().scrollToRealTime();
+                    chart.priceScale('right').applyOptions({ autoScale: true });
+                }
+            };
+            coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
+            coinbaseWs.onclose = () => console.log('Coinbase WS closed');
+
+            // Bybit WebSocket
             const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
             bybitWs.onopen = () => {
                 console.log('Bybit WebSocket connected');
@@ -68,7 +171,7 @@
 
                     series.update({
                         time: timestamp,
-                        value: liqValue * 10000, // Scale for visibility
+                        value: liqValue * 10000,
                         color: color
                     });
 
@@ -81,16 +184,15 @@
 
             function updateStatsAndChart() {
                 const now = Date.now() / 1000;
-                const cutoff = now - 24 * 60 * 60; // Last 24 hours
+                const cutoff = now - 24 * 60 * 60;
                 liquidations = liquidations.filter(liq => liq.time >= cutoff);
 
                 const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
                 const longCount = liquidations.filter(liq => liq.side === 'Buy').length;
                 const shortCount = liquidations.filter(liq => liq.side === 'Sell').length;
 
-                statsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
+                liqBox.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
 
-                // Redraw chart with only 24-hour data
                 longLiqSeries.setData(liquidations
                     .filter(liq => liq.side === 'Buy')
                     .map(liq => ({ time: liq.time, value: liq.qty * 10000 })));
@@ -111,7 +213,7 @@
                     console.log('Resetting liquidations at midnight UTC...');
                     liquidations = [];
                     updateStatsAndChart();
-                    checkDailyReset(); // Schedule next reset
+                    checkDailyReset();
                 }, timeToMidnight);
             }
 
@@ -120,11 +222,14 @@
             checkDailyReset();
 
             window.addEventListener('resize', () => {
-                chart.resize(window.innerWidth, window.innerHeight * 0.5);
+                chart.resize(container.offsetWidth, container.offsetHeight);
                 chart.priceScale('right').applyOptions({ autoScale: true });
             });
 
-            window.addEventListener('unload', () => bybitWs.close());
+            window.addEventListener('unload', () => {
+                coinbaseWs.close();
+                bybitWs.close();
+            });
         });
     </script>
 </body>
