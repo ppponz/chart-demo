@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
             margin: 0;
@@ -32,7 +32,6 @@
     <div id="price-label">$0</div>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            // Check if the library loaded
             if (typeof LightweightCharts === 'undefined') {
                 console.error('Lightweight Charts not loaded - check CDN or network');
                 return;
@@ -55,7 +54,6 @@
                     rightPriceScale: { borderColor: '#2A2A2A' }
                 });
 
-                // Extra check for chart methods
                 if (!chart.addCandlestickSeries || !chart.addScatterSeries) {
                     throw new Error('Chart library missing key methods - CDN might be broken');
                 }
@@ -153,5 +151,4 @@
     </script>
 </body>
 </html>
-
 
