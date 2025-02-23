@@ -61,8 +61,9 @@
                 timeScale: { timeVisible: true, secondsVisible: false },
                 rightPriceScale: { 
                     borderColor: '#2A2A2A', 
-                    autoScale: true, // Ensure scale adjusts to data
-                    mode: LightweightCharts.PriceScaleMode.Normal // Normal mode for price
+                    autoScale: true,
+                    mode: LightweightCharts.PriceScaleMode.Normal,
+                    minimumHeight: 100
                 }
             });
 
@@ -72,18 +73,18 @@
                 borderVisible: false,
                 wickUpColor: '#26a69a',
                 wickDownColor: '#ef5350',
-                priceScaleId: 'right' // Explicitly tie to right scale
+                priceScaleId: 'right'
             });
 
             const longLiqSeries = chart.addHistogramSeries({ 
                 color: 'rgba(255, 0, 0, 0.7)', 
                 priceLineVisible: false,
-                priceScaleId: 'right' // Share scale with candlesticks
+                priceScaleId: 'right'
             });
             const shortLiqSeries = chart.addHistogramSeries({ 
                 color: 'rgba(0, 255, 0, 0.7)', 
                 priceLineVisible: false,
-                priceScaleId: 'right' // Share scale with candlesticks
+                priceScaleId: 'right'
             });
 
             let liquidations = [];
@@ -103,11 +104,11 @@
                         const response = await fetch(
                             `https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=5&start=${fromTime * 1000}&limit=200`
                         );
-                        if (!response.ok) throw new Error(`Bybit API failed: ${response.status}`);
+                        if (!response.ok) throw new Error(`Bybit API failed: ${response.status} - ${await response.text()}`);
                         const data = await response.json();
 
                         if (!data.result || !data.result.list) {
-                            throw new Error('Invalid Bybit API response');
+                            throw new Error('Invalid Bybit API response: ' + JSON.stringify(data));
                         }
 
                         const candles = data.result.list.map(candle => ({
@@ -123,13 +124,13 @@
                         await new Promise(resolve => setTimeout(resolve, 500));
                     }
 
-                    console.log('Historical bars fetched:', allBars);
+                    console.log('Historical bars fetched:', allBars.length, 'bars');
                     if (allBars.length > 0) {
                         barSeries.setData(allBars);
                         const lastBar = allBars[allBars.length - 1];
                         priceLabel.textContent = `$${lastBar.close.toFixed(2)}`;
-                        chart.timeScale().fitContent();
-                        chart.priceScale('right').applyOptions({ autoScale: true }); // Force rescale
+                        chart.timeScale().scrollToRealTime();
+                        chart.priceScale('right').applyOptions({ autoScale: true });
                         console.log('Historical data set on chart, last bar:', lastBar);
                     } else {
                         console.error('No historical bars fetched');
@@ -172,7 +173,7 @@
                             console.log('Updated previous bar:', currentBar);
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
-                        barSeries.update(currentBar); // Update immediately for visibility
+                        barSeries.update(currentBar);
                         console.log('New bar created and updated:', currentBar);
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
@@ -181,7 +182,8 @@
                         barSeries.update(currentBar);
                         console.log('Updated current bar:', currentBar);
                     }
-                    chart.priceScale('right').applyOptions({ autoScale: true }); // Rescale after update
+                    chart.timeScale().scrollToRealTime();
+                    chart.priceScale('right').applyOptions({ autoScale: true });
                 }
             };
             coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
@@ -213,13 +215,13 @@
 
                     series.update({
                         time: timestamp,
-                        value: liqValue,
+                        value: liqValue * 10000, // Scaled for visibility
                         color: color
                     });
 
                     liquidations.push({ time: timestamp, qty: liqValue, side });
                     updateLiqStats();
-                    chart.priceScale('right').applyOptions({ autoScale: true }); // Rescale for liquidations
+                    chart.priceScale('right').applyOptions({ autoScale: true });
                 }
             };
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
