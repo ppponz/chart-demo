@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC/USD 5-min Chart with Enhanced Liquidations</title>
+    <title>BTC/USD 5-min Chart with Liquidation Stats</title>
     <script src="https://unpkg.com/lightweight-charts@3.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
@@ -9,12 +9,12 @@
             padding: 0;
             overflow: hidden;
             font-family: sans-serif;
-            background-color: #1A1A1A; /* Grok-inspired dark gray */
+            background-color: #1A1A1A !important;
         }
         #chart-container {
             width: 100vw;
             height: 100vh;
-            background-color: #1A1A1A;
+            background-color: #1A1A1A !important;
         }
         #price-label {
             position: absolute;
@@ -26,11 +26,23 @@
             padding: 5px 10px;
             border-radius: 4px;
         }
+        #liq-stats {
+            position: absolute;
+            top: 40px; /* Below price label */
+            left: 10px;
+            color: #D3D3D3;
+            font-size: 1em;
+            background: rgba(42, 42, 42, 0.8);
+            padding: 5px 10px;
+            border-radius: 4px;
+            white-space: pre-wrap; /* Preserve line breaks */
+        }
     </style>
 </head>
 <body>
     <div id="chart-container"></div>
     <div id="price-label">$0</div>
+    <div id="liq-stats">Liquidations (24h):\nTotal: 0 BTC\nLongs: 0\nShorts: 0</div>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
@@ -41,19 +53,22 @@
 
             const container = document.getElementById('chart-container');
             const priceLabel = document.getElementById('price-label');
+            const liqStatsLabel = document.getElementById('liq-stats');
             const barInterval = 300; // 5 minutes in seconds
             let currentBar = null;
             let bars = [];
+            let liquidations = []; // Store 24h liquidation events
 
             const chart = LightweightCharts.createChart(container, {
                 width: window.innerWidth,
                 height: window.innerHeight,
                 layout: { 
-                    background: { color: '#1A1A1A' }, // Grok dark gray
+                    backgroundColor: '#1A1A1A',
+                    background: { color: '#1A1A1A' },
                     textColor: '#D3D3D3' 
                 },
                 grid: { 
-                    vertLines: { color: '#333333', visible: true }, // Subtle grid
+                    vertLines: { color: '#333333', visible: true },
                     horzLines: { color: '#333333', visible: true } 
                 },
                 timeScale: { timeVisible: true, secondsVisible: false },
@@ -68,7 +83,6 @@
                 wickDownColor: '#ef5350'
             });
 
-            // Liquidation series with volume as height
             const longLiqSeries = chart.addHistogramSeries({ 
                 color: 'rgba(255, 0, 0, 0.7)', 
                 priceLineVisible: false 
@@ -78,7 +92,19 @@
                 priceLineVisible: false 
             });
 
-            // Fetch 1 week of historical 5-min data from Bybit
+            // Update liquidation stats display
+            function updateLiqStats() {
+                const now = Date.now() / 1000;
+                const cutoff = now - 24 * 60 * 60; // 24 hours ago
+                liquidations = liquidations.filter(liq => liq.time >= cutoff);
+
+                const totalVolume = liquidations.reduce((sum, liq) => sum + liq.qty, 0);
+                const longCount = liquidations.filter(liq => liq.side === 'Buy').length;
+                const shortCount = liquidations.filter(liq => liq.side === 'Sell').length;
+
+                liqStatsLabel.textContent = `Liquidations (24h):\nTotal: ${totalVolume.toFixed(2)} BTC\nLongs: ${longCount}\nShorts: ${shortCount}`;
+            }
+
             async function fetchHistoricalData() {
                 try {
                     const endTime = Math.floor(Date.now() / 1000) * 1000;
@@ -115,7 +141,6 @@
                 }
             }
 
-            // Coinbase WebSocket for real-time price updates
             const coinbaseWs = new WebSocket('wss://advanced-trade-ws.coinbase.com');
             coinbaseWs.onopen = () => {
                 console.log('Coinbase WebSocket connected');
@@ -148,7 +173,6 @@
             coinbaseWs.onerror = (error) => console.error('Coinbase WS error:', error);
             coinbaseWs.onclose = () => console.log('Coinbase WS closed');
 
-            // Bybit WebSocket for liquidations with enhanced features
             const bybitWs = new WebSocket('wss://stream.bybit.com/v5/public/linear');
             bybitWs.onopen = () => {
                 console.log('Bybit WebSocket connected');
@@ -165,24 +189,30 @@
                 if (symbol !== 'BTCUSDT') return;
 
                 const timestamp = Math.floor(Date.now() / 1000);
-                const liqValue = parseFloat(qty); // Use quantity as bar height
+                const liqValue = parseFloat(qty);
                 const liqPrice = parseFloat(price);
-                const threshold = 10; // BTC threshold for highlighting
+                const threshold = 10;
 
                 const series = side === 'Buy' ? longLiqSeries : shortLiqSeries;
                 const color = liqValue > threshold ? (side === 'Buy' ? '#FF5555' : '#55FF55') : series.options().color;
 
                 series.update({
                     time: timestamp,
-                    value: liqValue, // Height reflects liquidation size
-                    color: color // Brighter for large liquidations
+                    value: liqValue,
+                    color: color
                 });
 
-                // Log for pseudo-labeling (v3.2.0 lacks markers)
+                // Track liquidation for stats
+                liquidations.push({ time: timestamp, qty: liqValue, side });
+                updateLiqStats();
+
                 console.log(`${side} Liq: ${liqValue} BTC @ $${liqPrice}, Time: ${new Date(timestamp * 1000).toISOString()}`);
             };
             bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
             bybitWs.onclose = () => console.log('Bybit WS closed');
+
+            // Cleanup old liquidations periodically
+            setInterval(updateLiqStats, 60000); // Every minute
 
             window.addEventListener('resize', () => chart.resize(window.innerWidth, window.innerHeight));
             window.addEventListener('unload', () => {
