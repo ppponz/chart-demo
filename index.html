@@ -4,19 +4,27 @@
     <title>BTC Price and Liquidations</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
+        :root {
+            --background-color: #161b22;
+            --text-color: #D3D3D3;
+            --primary-color: #00E676;
+            --long-color: #26a69a;
+            --short-color: #ef5350;
+            --grid-color: #2A2A2A;
+        }
+        body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: var(--background-color); color: var(--text-color); }
         #container { max-width: 1400px; margin: 20px auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-        #header { text-align: center; padding: 15px; background: #161b22; border-radius: 8px; }
-        #header h1 { margin: 0; font-size: 1.5em; color: #00E676; }
-        .chart-wrapper { height: 500px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; margin-bottom: 20px; }
+        #header { text-align: center; padding: 15px; background: var(--background-color); border-radius: 8px; }
+        #header h1 { margin: 0; font-size: 1.5em; color: var(--primary-color); }
+        .chart-wrapper { height: 500px; background-color: var(--background-color); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; margin-bottom: 20px; }
         #liq-chart { height: 200px; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        #loading-text { color: #00E676; font-size: 1.2em; }
-        .stats-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; background: #161b22; padding: 15px; border-radius: 8px; }
+        #loading-text { color: var(--primary-color); font-size: 1.2em; }
+        .stats-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; background: var(--background-color); padding: 15px; border-radius: 8px; }
         .stat-item { text-align: center; padding: 10px; border-radius: 4px; background: rgba(0, 0, 0, 0.2); }
         .stat-label { font-size: 0.9em; color: #888; }
         .stat-value { font-size: 1.2em; margin-top: 5px; }
-        .long { color: #26a69a; } .short { color: #ef5350; }
+        .long { color: var(--long-color); } .short { color: var(--short-color); }
     </style>
 </head>
 <body>
@@ -36,25 +44,45 @@
             const liqChartContainer = document.getElementById('liq-chart');
             const loadingOverlay = document.getElementById('loading-overlay');
             const loadingText = document.getElementById('loading-text');
-            
+
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
             let livePrices = [];
 
-            // Chart setup
+            // Initialize charts
+            const { priceChart, liqChart, candleSeries, lineSeries, longLiqSeries, shortLiqSeries } = initializeCharts(priceChartContainer, liqChartContainer);
+
+            // Fetch historical data
+            const historicalSuccess = await fetchHistoricalData(candleSeries, loadingOverlay, loadingText);
+            if (!historicalSuccess && !currentBar) {
+                initializeDefaultBar(candleSeries);
+            }
+
+            // Connect WebSockets
+            const krakenWs = connectKrakenWebSocket(candleSeries, lineSeries, livePrices, priceChart);
+            const bybitWs = connectBybitWebSocket(longLiqSeries, shortLiqSeries, liqChart, updateLiquidationStats);
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                priceChart.resize(priceChartContainer.offsetWidth, priceChartContainer.offsetHeight);
+                liqChart.resize(liqChartContainer.offsetWidth, liqChartContainer.offsetHeight);
+            });
+
+            // Cleanup on window unload
+            window.addEventListener('unload', () => {
+                krakenWs.close();
+                bybitWs.close();
+            });
+        });
+
+        // Initialize charts
+        function initializeCharts(priceChartContainer, liqChartContainer) {
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
                 width: priceChartContainer.offsetWidth, height: priceChartContainer.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
-                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                timeScale: { 
-                    timeVisible: true, 
-                    secondsVisible: true,
-                    borderColor: '#2A2A2A',
-                    rightOffset: 10,
-                    fixLeftEdge: false
-                },
+                timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A' },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
 
@@ -81,208 +109,172 @@
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
             const shortLiqSeries = liqChart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' } });
 
-            // Validate bar data
-            function isValidBar(bar) {
-                const valid = bar && 
-                    bar.time !== null && bar.time !== undefined && Number.isFinite(bar.time) &&
-                    bar.open !== null && bar.open !== undefined && Number.isFinite(bar.open) &&
-                    bar.high !== null && bar.high !== undefined && Number.isFinite(bar.high) &&
-                    bar.low !== null && bar.low !== undefined && Number.isFinite(bar.low) &&
-                    bar.close !== null && bar.close !== undefined && Number.isFinite(bar.close);
-                if (!valid) console.warn('Invalid bar detected:', bar);
-                return valid;
-            }
+            return { priceChart, liqChart, candleSeries, lineSeries, longLiqSeries, shortLiqSeries };
+        }
 
-            // Fetch historical data from Kraken
-            async function fetchHistoricalData() {
+        // Fetch historical data
+        async function fetchHistoricalData(candleSeries, loadingOverlay, loadingText) {
+            try {
                 const barsPerCall = 720;
                 const totalBars = 2016;
-                const callsNeeded = Math.ceil(totalBars / barsPerCall);
-                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60); // Corrected start
-                historicalData = [];
+                const since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+                const fetchPromises = [];
 
-                for (let i = 0; i < callsNeeded; i++) {
-                    try {
-                        const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${since}`;
-                        console.log(`Fetching: ${url}`);
-                        const response = await fetch(url);
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
-
-                        if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
-                        const bars = data.result['XXBTZUSD'] || [];
-                        if (!bars.length) {
-                            console.warn('No bars returned for this range');
-                            break;
-                        }
-
-                        const mappedBars = bars.map(bar => ({
-                            time: parseInt(bar[0], 10),
-                            open: parseFloat(bar[1]),
-                            high: parseFloat(bar[2]),
-                            low: parseFloat(bar[3]),
-                            close: parseFloat(bar[4])
-                        })).filter(isValidBar);
-
-                        console.log(`Fetched ${mappedBars.length} valid bars`);
-                        historicalData.push(...mappedBars);
-                        since = mappedBars[mappedBars.length - 1].time + 300; // Step forward 5 min
-                    } catch (error) {
-                        console.error('Historical fetch failed:', error);
-                        loadingText.textContent = 'Error loading history. Starting with live data...';
-                        setTimeout(() => { loadingOverlay.style.display = 'none'; }, 2000);
-                        return false;
-                    }
+                for (let i = 0; i < Math.ceil(totalBars / barsPerCall); i++) {
+                    const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${since + i * barsPerCall * 300}`;
+                    fetchPromises.push(fetch(url).then(response => response.json()));
                 }
 
-                if (historicalData.length > 0) {
-                    historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
-                        .sort((a, b) => a.time - b.time);
-                    console.log('Processed historical data:', historicalData.slice(0, 5));
-                    console.log('Last historical bar:', historicalData[historicalData.length - 1]);
-                    candleSeries.setData(historicalData);
-                    priceChart.timeScale().scrollToRealTime();
-                    loadingOverlay.style.display = 'none';
-                    return true;
-                }
+                const results = await Promise.all(fetchPromises);
+                historicalData = results.flatMap(data => data.result['XXBTZUSD'].map(bar => ({
+                    time: parseInt(bar[0], 10),
+                    open: parseFloat(bar[1]),
+                    high: parseFloat(bar[2]),
+                    low: parseFloat(bar[3]),
+                    close: parseFloat(bar[4])
+                }))).filter(isValidBar);
+
+                candleSeries.setData(historicalData);
+                loadingOverlay.style.display = 'none';
+                return true;
+            } catch (error) {
+                console.error('Historical fetch failed:', error);
+                loadingText.textContent = 'Error loading history. Starting with live data...';
+                setTimeout(() => { loadingOverlay.style.display = 'none'; }, 2000);
                 return false;
             }
+        }
 
-            // Kraken WebSocket with trade channel
-            function connectKrakenWebSocket() {
-                const ws = new WebSocket('wss://ws.kraken.com');
-                
-                ws.onopen = () => {
-                    console.log('Kraken WebSocket connected');
-                    ws.send(JSON.stringify({
-                        event: 'subscribe',
-                        pair: ['XBT/USD'],
-                        subscription: { name: 'trade' }
-                    }));
-                };
+        // Initialize default bar if no historical data is available
+        function initializeDefaultBar(candleSeries) {
+            const now = Math.floor(Date.now() / 1000);
+            const barTime = Math.floor(now / 300) * 300;
+            currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
+            candleSeries.setData([currentBar]);
+        }
 
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        console.log('Raw WebSocket message:', data);
+        // Validate bar data
+        function isValidBar(bar) {
+            return bar && Number.isFinite(bar.time) && Number.isFinite(bar.open) &&
+                   Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close);
+        }
 
-                        if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') {
-                            console.log('Skipping non-trade message');
-                            return;
-                        }
+        // Connect Kraken WebSocket
+        function connectKrakenWebSocket(candleSeries, lineSeries, livePrices, priceChart) {
+            const ws = new WebSocket('wss://ws.kraken.com');
+            let reconnectDelay = 1000;
 
+            ws.onopen = () => {
+                console.log('Kraken WebSocket connected');
+                ws.send(JSON.stringify({
+                    event: 'subscribe',
+                    pair: ['XBT/USD'],
+                    subscription: { name: 'trade' }
+                }));
+                reconnectDelay = 1000; // Reset delay on successful connection
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (Array.isArray(data) && data[2] === 'trade') {
                         const trade = data[1][0];
                         const price = parseFloat(trade[0]);
                         const timestamp = Math.floor(parseFloat(trade[2]));
-                        if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
-                            console.warn('Invalid trade data:', trade);
-                            return;
+                        if (Number.isFinite(price) && Number.isFinite(timestamp)) {
+                            processTradeData(price, timestamp, candleSeries, lineSeries, livePrices, priceChart);
                         }
-
-                        const barTime = Math.floor(timestamp / 300) * 300;
-
-                        if (!currentBar || currentBar.time !== barTime) {
-                            if (currentBar && isValidBar(currentBar)) {
-                                console.log('Closing previous bar:', currentBar);
-                                candleSeries.update(currentBar);
-                            }
-                            currentBar = {
-                                time: barTime,
-                                open: price,
-                                high: price,
-                                low: price,
-                                close: price
-                            };
-                        } else {
-                            currentBar.high = Math.max(currentBar.high, price);
-                            currentBar.low = Math.min(currentBar.low, price);
-                            currentBar.close = price;
-                        }
-
-                        console.log('Live trade update:', { price, bar: currentBar });
-                        if (isValidBar(currentBar)) {
-                            candleSeries.update(currentBar);
-                            livePrices.push({ time: timestamp, value: price });
-                            if (livePrices.length > 1000) livePrices.shift();
-                            lineSeries.setData(livePrices);
-                            priceChart.timeScale().fitContent();
-                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
-                            if (currentBar.time > lastHistoricalTime + 300) {
-                                priceChart.timeScale().scrollToRealTime();
-                            }
-                        }
-                    } catch (error) {
-                        console.error('WebSocket processing error:', error);
                     }
-                };
+                } catch (error) {
+                    console.error('WebSocket processing error:', error);
+                }
+            };
 
-                ws.onerror = (error) => console.error('Kraken WebSocket error:', error);
-                ws.onclose = () => {
-                    console.log('Kraken WebSocket closed. Reconnecting...');
-                    setTimeout(connectKrakenWebSocket, 2000);
-                };
-                return ws;
+            ws.onerror = (error) => console.error('Kraken WebSocket error:', error);
+            ws.onclose = () => {
+                console.log(`Reconnecting in ${reconnectDelay / 1000} seconds...`);
+                setTimeout(() => {
+                    reconnectDelay *= 2; // Exponential backoff
+                    connectKrakenWebSocket(candleSeries, lineSeries, livePrices, priceChart);
+                }, reconnectDelay);
+            };
+
+            return ws;
+        }
+
+        // Process trade data
+        function processTradeData(price, timestamp, candleSeries, lineSeries, livePrices, priceChart) {
+            const barTime = Math.floor(timestamp / 300) * 300;
+
+            if (!currentBar || currentBar.time !== barTime) {
+                if (currentBar && isValidBar(currentBar)) {
+                    candleSeries.update(currentBar);
+                }
+                currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+            } else {
+                currentBar.high = Math.max(currentBar.high, price);
+                currentBar.low = Math.min(currentBar.low, price);
+                currentBar.close = price;
             }
 
-            // Bybit WebSocket for liquidations
-            function connectBybitWebSocket() {
-                const ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
-                ws.onopen = () => {
-                    console.log('Bybit WebSocket connected');
-                    ws.send(JSON.stringify({ op: 'subscribe', args: ['liquidation.BTCUSDT'] }));
-                };
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.topic === 'liquidation.BTCUSDT' && data.data) {
-                        const { side, qty, time } = data.data;
-                        const timestamp = Math.floor(parseInt(time) / 1000);
-                        const liqValue = parseFloat(qty);
-                        liquidations.push({ time: timestamp, qty: liqValue, side });
-                        updateLiquidationStats();
-                    }
-                };
-                ws.onerror = (error) => console.error('Bybit WebSocket error:', error);
-                ws.onclose = () => setTimeout(connectBybitWebSocket, 2000);
-                return ws;
+            if (isValidBar(currentBar)) {
+                candleSeries.update(currentBar);
+                livePrices.push({ time: timestamp, value: price });
+                if (livePrices.length > 1000) livePrices.shift();
+                lineSeries.setData(livePrices);
+                priceChart.timeScale().fitContent();
             }
+        }
 
-            function updateLiquidationStats() {
-                const now = Date.now() / 1000;
-                const cutoff = now - 24 * 60 * 60;
-                liquidations = liquidations.filter(liq => liq.time >= cutoff);
-                const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
-                const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
-                const longVolume = longLiqs.reduce((sum, liq) => sum + liq.qty, 0);
-                const shortVolume = shortLiqs.reduce((sum, liq) => sum + liq.qty, 0);
-                document.getElementById('long-liq').textContent = `${longVolume.toFixed(2)} BTC`;
-                document.getElementById('short-liq').textContent = `${shortVolume.toFixed(2)} BTC`;
-                longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
-                shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
-                liqChart.timeScale().fitContent();
-            }
+        // Connect Bybit WebSocket
+        function connectBybitWebSocket(longLiqSeries, shortLiqSeries, liqChart, updateLiquidationStats) {
+            const ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
+            let reconnectDelay = 1000;
 
-            // Main execution
-            const historicalSuccess = await fetchHistoricalData();
-            const krakenWs = connectKrakenWebSocket();
-            const bybitWs = connectBybitWebSocket();
+            ws.onopen = () => {
+                console.log('Bybit WebSocket connected');
+                ws.send(JSON.stringify({ op: 'subscribe', args: ['liquidation.BTCUSDT'] }));
+                reconnectDelay = 1000; // Reset delay on successful connection
+            };
 
-            if (!historicalSuccess && !currentBar) {
-                const now = Math.floor(Date.now() / 1000);
-                const barTime = Math.floor(now / 300) * 300;
-                currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                candleSeries.setData([currentBar]);
-            }
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.topic === 'liquidation.BTCUSDT' && data.data) {
+                    const { side, qty, time } = data.data;
+                    const timestamp = Math.floor(parseInt(time) / 1000);
+                    const liqValue = parseFloat(qty);
+                    liquidations.push({ time: timestamp, qty: liqValue, side });
+                    updateLiquidationStats(longLiqSeries, shortLiqSeries, liqChart);
+                }
+            };
 
-            window.addEventListener('resize', () => {
-                priceChart.resize(priceChartContainer.offsetWidth, priceChartContainer.offsetHeight);
-                liqChart.resize(liqChartContainer.offsetWidth, liqChartContainer.offsetHeight);
-            });
+            ws.onerror = (error) => console.error('Bybit WebSocket error:', error);
+            ws.onclose = () => {
+                console.log(`Reconnecting in ${reconnectDelay / 1000} seconds...`);
+                setTimeout(() => {
+                    reconnectDelay *= 2; // Exponential backoff
+                    connectBybitWebSocket(longLiqSeries, shortLiqSeries, liqChart, updateLiquidationStats);
+                }, reconnectDelay);
+            };
 
-            window.addEventListener('unload', () => {
-                krakenWs.close();
-                bybitWs.close();
-            });
-        });
+            return ws;
+        }
+
+        // Update liquidation stats
+        function updateLiquidationStats(longLiqSeries, shortLiqSeries, liqChart) {
+            const now = Date.now() / 1000;
+            const cutoff = now - 24 * 60 * 60;
+            liquidations = liquidations.filter(liq => liq.time >= cutoff);
+            const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
+            const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
+            const longVolume = longLiqs.reduce((sum, liq) => sum + liq.qty, 0);
+            const shortVolume = shortLiqs.reduce((sum, liq) => sum + liq.qty, 0);
+            document.getElementById('long-liq').textContent = `${longVolume.toFixed(2)} BTC`;
+            document.getElementById('short-liq').textContent = `${shortVolume.toFixed(2)} BTC`;
+            longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
+            shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
+            liqChart.timeScale().fitContent();
+        }
     </script>
 </body>
 </html>
