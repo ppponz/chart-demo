@@ -3,30 +3,6 @@
 <head>
     <title>BTC/USD 5-min Chart with Liquidations</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script>
-        // Fallback if CDN fails - basic chart setup
-        window.LightweightCharts = window.LightweightCharts || {
-            version: function() { return "4.1.3"; },
-            createChart: function(container, options) {
-                var chart = {
-                    addCandlestickSeries: function(opts) {
-                        return {
-                            setData: function(data) { console.log('Candlestick data:', data); },
-                            update: function(bar) { console.log('Candlestick update:', bar); }
-                        };
-                    },
-                    addScatterSeries: function(opts) {
-                        return {
-                            update: function(point) { console.log('Scatter update:', point); }
-                        };
-                    },
-                    timeScale: function() { return { fitContent: function() {} }; },
-                    resize: function(w, h) { container.style.width = w + 'px'; container.style.height = h + 'px'; }
-                };
-                return chart;
-            }
-        };
-    </script>
     <style>
         body {
             margin: 0;
@@ -57,24 +33,36 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (typeof LightweightCharts === 'undefined') {
-                console.error('Lightweight Charts not loaded - using fallback');
-            } else {
-                console.log('Lightweight Charts version:', LightweightCharts.version());
+                console.error('Lightweight Charts not loaded - CDN failed');
+                return;
             }
+            console.log('Lightweight Charts version:', LightweightCharts.version());
 
             const container = document.getElementById('chart-container');
             const priceLabel = document.getElementById('price-label');
-            const barInterval = 300; // 5 minutes
+            const barInterval = 300; // 5 minutes in seconds
             let currentBar = null;
 
             try {
                 const chart = LightweightCharts.createChart(container, {
                     width: window.innerWidth,
                     height: window.innerHeight,
-                    layout: { background: { color: '#1E1E1E' }, textColor: '#D3D3D3' },
-                    grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-                    timeScale: { timeVisible: true, secondsVisible: false },
-                    rightPriceScale: { borderColor: '#2A2A2A' }
+                    layout: {
+                        background: { color: '#1E1E1E' },
+                        textColor: '#D3D3D3'
+                    },
+                    grid: {
+                        vertLines: { visible: false },
+                        horzLines: { visible: false }
+                    },
+                    timeScale: {
+                        timeVisible: true,
+                        secondsVisible: false,
+                        borderColor: '#2A2A2A'
+                    },
+                    rightPriceScale: {
+                        borderColor: '#2A2A2A'
+                    }
                 });
 
                 const barSeries = chart.addCandlestickSeries({
@@ -85,8 +73,15 @@
                     wickDownColor: '#ef5350'
                 });
 
-                const longLiqSeries = chart.addScatterSeries({ color: 'rgba(255, 0, 0, 0.7)', radius: 2 });
-                const shortLiqSeries = chart.addScatterSeries({ color: 'rgba(0, 255, 0, 0.7)', radius: 2 });
+                const longLiqSeries = chart.addScatterSeries({
+                    color: 'rgba(255, 0, 0, 0.7)',
+                    radius: 2
+                });
+
+                const shortLiqSeries = chart.addScatterSeries({
+                    color: 'rgba(0, 255, 0, 0.7)',
+                    radius: 2
+                });
 
                 const coinbaseWs = new WebSocket('wss://ws-feed.pro.coinbase.com');
                 coinbaseWs.onopen = () => {
@@ -112,7 +107,13 @@
                             barSeries.update(currentBar);
                             chart.timeScale().fitContent();
                         }
-                        currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                        currentBar = {
+                            time: barTime,
+                            open: price,
+                            high: price,
+                            low: price,
+                            close: price
+                        };
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
@@ -144,7 +145,9 @@
                 bybitWs.onerror = (error) => console.error('Bybit WS error:', error);
                 bybitWs.onclose = () => console.log('Bybit WS closed');
 
-                window.addEventListener('resize', () => chart.resize(window.innerWidth, window.innerHeight));
+                window.addEventListener('resize', () => {
+                    chart.resize(window.innerWidth, window.innerHeight);
+                });
                 window.addEventListener('unload', () => {
                     coinbaseWs.close();
                     bybitWs.close();
