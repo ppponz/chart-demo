@@ -40,6 +40,7 @@
             let historicalData = [];
             let liquidations = [];
             let currentBar = null;
+            let livePrices = []; // For line series
 
             // Chart setup
             const priceChart = LightweightCharts.createChart(priceChartContainer, {
@@ -68,6 +69,13 @@
             const candleSeries = priceChart.addCandlestickSeries({
                 upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
                 wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+            });
+
+            const lineSeries = priceChart.addLineSeries({
+                color: '#00E676', // Bright green for visibility
+                lineWidth: 1,
+                priceScaleId: 'right',
+                title: 'Live Price'
             });
 
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
@@ -163,15 +171,15 @@
                             return;
                         }
 
-                        const trade = data[1][0]; // First trade in the batch
+                        const trade = data[1][0]; // First trade in batch
                         const price = parseFloat(trade[0]);
-                        const timestamp = Math.floor(parseFloat(trade[2])); // Trade timestamp
+                        const timestamp = Math.floor(parseFloat(trade[2]));
                         if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
                             console.warn('Invalid trade data:', trade);
                             return;
                         }
 
-                        const barTime = Math.floor(timestamp / 300) * 300; // 5-minute boundary
+                        const barTime = Math.floor(timestamp / 300) * 300;
 
                         if (!currentBar || currentBar.time !== barTime) {
                             if (currentBar && isValidBar(currentBar)) {
@@ -194,6 +202,12 @@
                         console.log('Live trade update:', { price, bar: currentBar });
                         if (isValidBar(currentBar)) {
                             candleSeries.update(currentBar);
+                            // Add to line series for micro-movements
+                            livePrices.push({ time: timestamp, value: price });
+                            if (livePrices.length > 1000) livePrices.shift(); // Limit size
+                            lineSeries.setData(livePrices);
+                            // Force redraw
+                            priceChart.applyOptions({});
                             const lastHistoricalTime = historicalData[historicalData.length - 1].time;
                             if (currentBar.time > lastHistoricalTime + 300) {
                                 priceChart.timeScale().scrollToRealTime();
