@@ -48,7 +48,6 @@
             const liqStatsLabel = document.getElementById('liq-stats');
             const histLiqStatsLabel = document.getElementById('hist-liq-stats');
 
-            // Verify container exists
             if (!container) {
                 console.error('Chart container not found!');
                 return;
@@ -79,11 +78,13 @@
 
             async function fetchHistoricalData() {
                 try {
-                    const endTime = Math.floor(Date.now() / 1000); // Current time in seconds
+                    const endTime = Math.floor(Date.now() / 1000);
                     const maxLookbackInMs = 7 * 24 * 60 * 60 * 1000; // 7 days
                     const startTime = endTime - Math.floor(maxLookbackInMs / 1000);
                     let allBars = [];
                     let fromTime = startTime;
+
+                    console.log('Fetching historical data from:', new Date(startTime * 1000), 'to', new Date(endTime * 1000));
 
                     while (fromTime < endTime) {
                         const response = await fetch(
@@ -97,27 +98,28 @@
                         }
 
                         const candles = data.result.list.map(candle => ({
-                            time: Math.floor(parseInt(candle[0]) / 1000), // Convert ms to s
+                            time: Math.floor(parseInt(candle[0]) / 1000),
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
                             close: parseFloat(candle[4])
-                        })).reverse(); // Oldest to newest
+                        })).reverse();
 
                         allBars = allBars.concat(candles);
-                        fromTime = Math.floor(parseInt(data.result.list[0][0]) / 1000) + 300; // Next 5min interval
-                        await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit delay
+                        fromTime = Math.floor(parseInt(data.result.list[0][0]) / 1000) + 300;
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
 
-                    console.log('Historical bars to set:', allBars);
-                    barSeries.setData(allBars);
-                    const lastBar = allBars[allBars.length - 1];
-                    if (lastBar) {
+                    console.log('Historical bars fetched:', allBars);
+                    if (allBars.length > 0) {
+                        barSeries.setData(allBars);
+                        const lastBar = allBars[allBars.length - 1];
                         priceLabel.textContent = `$${lastBar.close.toFixed(2)}`;
                         chart.timeScale().fitContent();
-                        console.log('Chart should now display historical data');
+                        console.log('Historical data set on chart, last bar:', lastBar);
                     } else {
-                        console.error('No historical bars available');
+                        console.error('No historical bars fetched');
+                        priceLabel.textContent = 'No historical data available';
                     }
                 } catch (error) {
                     console.error('Historical data fetch error:', error);
@@ -126,11 +128,11 @@
             }
 
             async function fetchHistoricalLiquidationData() {
-                histLiqStatsLabel.textContent = 'Historical liquidation data not available.';
+                histLiqStatsLabel.textContent = 'No historical liquidation data available.';
             }
 
             // Coinbase WebSocket
-            const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com'); // Updated URL
+            const coinbaseWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
             coinbaseWs.onopen = () => {
                 console.log('Coinbase WebSocket connected');
                 coinbaseWs.send(JSON.stringify({
@@ -146,22 +148,23 @@
                 if (data.type === 'ticker' && data.product_id === 'BTC-USD') {
                     const price = parseFloat(data.price);
                     const timestamp = Math.floor(Date.now() / 1000);
-                    const barTime = Math.floor(timestamp / 300) * 300; // 5min intervals
+                    const barTime = Math.floor(timestamp / 300) * 300;
 
                     priceLabel.textContent = `$${price.toFixed(2)}`;
 
                     if (!currentBar || currentBar.time !== barTime) {
                         if (currentBar) {
                             barSeries.update(currentBar);
-                            console.log('Updated bar:', currentBar);
+                            console.log('Updated previous bar:', currentBar);
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                        console.log('New bar created:', currentBar);
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
                         currentBar.close = price;
                         barSeries.update(currentBar);
-                        console.log('Updated existing bar:', currentBar);
+                        console.log('Updated current bar:', currentBar);
                     }
                 }
             };
