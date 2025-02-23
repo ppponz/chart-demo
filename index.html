@@ -107,24 +107,31 @@
                         if (!response.ok) throw new Error(`Bybit API failed: ${response.status} - ${await response.text()}`);
                         const data = await response.json();
 
+                        console.log('Raw Bybit API response:', data);
+
                         if (!data.result || !data.result.list) {
                             throw new Error('Invalid Bybit API response: ' + JSON.stringify(data));
                         }
 
-                        const candles = data.result.list.map(candle => ({
-                            time: Math.floor(parseInt(candle[0]) / 1000),
-                            open: parseFloat(candle[1]),
-                            high: parseFloat(candle[2]),
-                            low: parseFloat(candle[3]),
-                            close: parseFloat(candle[4])
-                        })).reverse();
+                        const candles = data.result.list.map(candle => {
+                            const time = Math.floor(parseInt(candle[0]) / 1000);
+                            const open = parseFloat(candle[1]);
+                            const high = parseFloat(candle[2]);
+                            const low = parseFloat(candle[3]);
+                            const close = parseFloat(candle[4]);
+                            if (isNaN(time) || isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) {
+                                console.warn('Invalid candle data:', candle);
+                                return null;
+                            }
+                            return { time, open, high, low, close };
+                        }).filter(candle => candle !== null).reverse();
 
                         allBars = allBars.concat(candles);
                         fromTime = Math.floor(parseInt(data.result.list[0][0]) / 1000) + 300;
                         await new Promise(resolve => setTimeout(resolve, 500));
                     }
 
-                    console.log('Historical bars fetched:', allBars.length, 'bars');
+                    console.log('Processed historical bars:', allBars.length, 'bars', allBars.slice(0, 2)); // Show first 2 for reference
                     if (allBars.length > 0) {
                         barSeries.setData(allBars);
                         const lastBar = allBars[allBars.length - 1];
@@ -133,7 +140,7 @@
                         chart.priceScale('right').applyOptions({ autoScale: true });
                         console.log('Historical data set on chart, last bar:', lastBar);
                     } else {
-                        console.error('No historical bars fetched');
+                        console.error('No valid historical bars fetched');
                         priceLabel.textContent = 'No historical data available';
                     }
                 } catch (error) {
@@ -211,11 +218,11 @@
                     const threshold = 10;
 
                     const series = side === 'Buy' ? longLiqSeries : shortLiqSeries;
-                    const color = liqValue > threshold ? (side === 'Buy' ? '#FF5555' : '#55FF55') : series.options().color;
+                    const color = liqValue > threshold ? (side === 'Buy' : '#FF5555' : '#55FF55') : series.options().color;
 
                     series.update({
                         time: timestamp,
-                        value: liqValue * 10000, // Scaled for visibility
+                        value: liqValue * 10000,
                         color: color
                     });
 
