@@ -67,33 +67,50 @@
             const longLiqSeries = liqChart.addHistogramSeries({ color: '#ef5350', priceFormat: { type: 'volume' } });
             const shortLiqSeries = liqChart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' } });
 
-            // Fetch 7 days of historical 5-minute data from Kraken
+            // Validate bar data
+            function isValidBar(bar) {
+                return bar && 
+                    bar.time !== null && bar.time !== undefined && Number.isFinite(bar.time) &&
+                    bar.open !== null && bar.open !== undefined && Number.isFinite(bar.open) &&
+                    bar.high !== null && bar.high !== undefined && Number.isFinite(bar.high) &&
+                    bar.low !== null && bar.low !== undefined && Number.isFinite(bar.low) &&
+                    bar.close !== null && bar.close !== undefined && Number.isFinite(bar.close);
+            }
+
+            // Fetch historical data from Kraken
             async function fetchHistoricalData() {
-                const barsPerCall = 720; // Kraken max
+                const barsPerCall = 720;
                 const totalBars = 2016; // 7 days ÷ 5 min
                 const callsNeeded = Math.ceil(totalBars / barsPerCall);
-                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60); // 7 days ago in seconds
+                let since = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
                 historicalData = [];
 
                 for (let i = 0; i < callsNeeded; i++) {
                     try {
                         const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=5&since=${since}`;
-                        console.log(`Fetching historical data: ${url}`);
+                        console.log(`Fetching: ${url}`);
                         const response = await fetch(url);
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
 
                         if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
-                        const bars = data.result['XXBTZUSD']; // Kraken's pair key
-                        historicalData.push(...bars.map(bar => ({
-                            time: parseInt(bar[0]), // Unix timestamp in seconds
+                        const bars = data.result['XXBTZUSD'] || [];
+                        if (!bars.length) {
+                            console.warn('No bars returned for this range');
+                            break;
+                        }
+
+                        const mappedBars = bars.map(bar => ({
+                            time: parseInt(bar[0]),
                             open: parseFloat(bar[1]),
                             high: parseFloat(bar[2]),
                             low: parseFloat(bar[3]),
                             close: parseFloat(bar[4])
-                        })));
+                        })).filter(isValidBar);
 
-                        since = bars[bars.length - 1][0]; // Update 'since' to last timestamp
+                        console.log(`Fetched ${mappedBars.length} valid bars`);
+                        historicalData.push(...mappedBars);
+                        since = bars[bars.length - 1][0];
                     } catch (error) {
                         console.error('Historical fetch failed:', error);
                         loadingText.textContent = 'Error loading history. Starting with live data...';
@@ -102,13 +119,17 @@
                     }
                 }
 
-                candleSeries.setData(historicalData);
-                priceChart.timeScale().fitContent();
-                loadingOverlay.style.display = 'none';
-                return true;
+                if (historicalData.length > 0) {
+                    console.log('Setting historical data:', historicalData.slice(0, 5)); // Sample first 5
+                    candleSeries.setData(historicalData);
+                    priceChart.timeScale().fitContent();
+                    loadingOverlay.style.display = 'none';
+                    return true;
+                }
+                return false;
             }
 
-            // Kraken WebSocket for real-time 5-minute OHLC
+            // Kraken WebSocket
             function connectKrakenWebSocket() {
                 const ws = new WebSocket('wss://ws.kraken.com');
                 
@@ -122,37 +143,42 @@
                 };
 
                 ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (Array.isArray(data) && data[1] && data[1].length === 10) { // OHLC message
-                        const ohlc = data[1];
-                        const bar = {
-                            time: parseInt(ohlc[1]), // End time of 5-min candle
-                            open: parseFloat(ohlc[2]),
-                            high: parseFloat(ohlc[3]),
-                            low: parseFloat(ohlc[4]),
-                            close: parseFloat(ohlc[5])
-                        };
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (Array.isArray(data) && data[1] && data[1].length >= 6) {
+                            const ohlc = data[1];
+                            const bar = {
+                                time: parseInt(ohlc[1]), // time_end
+                                open: parseFloat(ohlc[2]),
+                                high: parseFloat(ohlc[3]),
+                                low: parseFloat(ohlc[4]),
+                                close: parseFloat(ohlc[5])
+                            };
 
-                        if (!currentBar || currentBar.time !== bar.time) {
-                            if (currentBar) candleSeries.update(currentBar);
-                            currentBar = bar;
-                        } else {
-                            currentBar = { ...currentBar, ...bar };
+                            if (isValidBar(bar)) {
+                                console.log('WebSocket bar:', bar);
+                                if (!currentBar || currentBar.time !== bar.time) {
+                                    if (currentBar) candleSeries.update(currentBar);
+                                    currentBar = bar;
+                                } else {
+                                    currentBar = { ...currentBar, ...bar };
+                                }
+                                candleSeries.update(currentBar);
+                            } else {
+                                console.warn('Invalid WebSocket bar:', bar);
+                            }
                         }
-                        candleSeries.update(currentBar);
+                    } catch (error) {
+                        console.error('WebSocket parse error:', error);
                     }
                 };
 
                 ws.onerror = (error) => console.error('Kraken WebSocket error:', error);
-                ws.onclose = () => {
-                    console.log('Kraken WebSocket closed. Reconnecting...');
-                    setTimeout(connectKrakenWebSocket, 2000);
-                };
-
+                ws.onclose = () => setTimeout(connectKrakenWebSocket, 2000);
                 return ws;
             }
 
-            // Bybit WebSocket for liquidations (unchanged)
+            // Bybit WebSocket (unchanged)
             function connectBybitWebSocket() {
                 const ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
                 ws.onopen = () => {
