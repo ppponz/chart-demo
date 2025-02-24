@@ -350,7 +350,7 @@
                         if (isValidBar(currentBar)) {
                             priceSeries.update(currentBar);
                             lastBtcPrice = currentBar.close;
-                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
+                            const lastHistoricalTime = historicalData[historicalData.length - 1]?.time || 0;
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
