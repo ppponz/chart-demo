@@ -465,7 +465,6 @@
                         const data = JSON.parse(event.data);
                         console.log('Raw Bybit message:', data);
 
-                        // Log subscription confirmation
                         if (data.success && data.op === 'subscribe') {
                             console.log('Bybit subscription confirmed:', data);
                         }
@@ -502,6 +501,12 @@
                 'Bybit',
                 elements.bybitStatus
             );
+
+            // Simulate a liquidation after 10 seconds
+            setTimeout(() => {
+                console.log('Simulating liquidation...');
+                updateLiqCandle(Math.floor(Date.now() / 1000), 0.01, 'Sell');
+            }, 10000);
 
             console.log('Starting historical price data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
