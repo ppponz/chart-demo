@@ -162,10 +162,10 @@
             let currentOiCandle = null;
             let cvdCandleData = [];
             let currentCvdCandle = null;
-            let cvdCumulative = 0;
-            let oiCumulative = 0;
-            let lastOiValue = null;
-            let liquidationDelta = 0;
+            let cvdCumulative = parseFloat(localStorage.getItem('cvdCumulative') || '0');
+            let oiCumulative = parseFloat(localStorage.getItem('oiCumulative') || '0');
+            let lastOiValue = parseFloat(localStorage.getItem('lastOiValue') || '0');
+            let liquidationDelta = parseFloat(localStorage.getItem('liquidationDelta') || '0');
             let isCvdInitialized = false;
             let isLiqInitialized = false;
             let connectionStatus = {
@@ -207,6 +207,13 @@
                 else if (value > 0) element.classList.add('positive');
             };
 
+            const saveToStorage = () => {
+                localStorage.setItem('cvdCumulative', cvdCumulative.toString());
+                localStorage.setItem('oiCumulative', oiCumulative.toString());
+                localStorage.setItem('lastOiValue', lastOiValue.toString());
+                localStorage.setItem('liquidationDelta', liquidationDelta.toString());
+            };
+
             const updateConnectionStatus = () => {
                 const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
                 elements.connectionStatus.textContent = allConnected ? 'Connected' : 'Disconnected';
@@ -227,7 +234,10 @@
                     reconnectDelay = 2000;
                 };
 
-                ws.onmessage = onMessage;
+                ws.onmessage = (event) => {
+                    onMessage(event);
+                    saveToStorage(); // Save after each message
+                };
 
                 ws.onerror = (error) => {
                     console.error(`${label} WebSocket error:`, error);
@@ -374,6 +384,7 @@
                         connectionStatus.binance = true;
                         updateConnectionStatus();
                         console.log('Initialized OI with:', oiCandleData[oiCandleData.length - 1]);
+                        saveToStorage();
                     }
                 } catch (error) {
                     console.error('Initial Binance OI fetch failed:', error);
@@ -393,6 +404,7 @@
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     elements.oiData.textContent = formatDollar(0);
                     updateColor(elements.oiData, 0);
+                    saveToStorage();
                 }
             }
 
@@ -460,6 +472,7 @@
                     console.log('Initialized currentBar from historical:', currentBar);
                     elements.cvdData.textContent = formatDollar(cvdCumulative);
                     elements.liqData.textContent = formatDollar(liquidationDelta, true);
+                    saveToStorage();
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -498,6 +511,7 @@
                     elements.cvdData.textContent = formatDollar(cvdCumulative);
                     updateColor(elements.cvdData, cvdCumulative);
                     console.log('Updated CVD in metrics box:', cvdCumulative);
+                    saveToStorage();
                 }
             }
 
@@ -529,6 +543,7 @@
                     elements.oiData.textContent = formatDollar(oiCumulative);
                     updateColor(elements.oiData, oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
+                    saveToStorage();
                 }
             }
 
@@ -537,6 +552,8 @@
                 console.log('Raw liquidation data:', rawData);
                 const adjustedValue = value * LIQ_SENSITIVITY;
                 const delta = (side === 'Sell' ? adjustedValue : -adjustedValue);
+                
+                console.log(`LIQ Update - Timestamp: ${timestamp}, BTC: ${value}, Side: ${side}, Delta: ${delta}, Prev Delta: ${liquidationDelta}, New Delta: ${liquidationDelta + delta}, Price: $${lastBtcPrice}`);
                 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
@@ -560,6 +577,7 @@
                     elements.liqData.textContent = formatDollar(liquidationDelta, true);
                     updateColor(elements.liqData, liquidationDelta);
                     console.log('Updated LIQ in metrics box:', liquidationDelta);
+                    saveToStorage();
                 }
             }
 
@@ -632,6 +650,9 @@
                                 priceChart.timeScale().scrollToRealTime();
                             }
                             debounceTitle(price);
+                            elements.cvdData.textContent = formatDollar(cvdCumulative);
+                            elements.oiData.textContent = formatDollar(oiCumulative);
+                            elements.liqData.textContent = formatDollar(liquidationDelta, true);
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
@@ -700,6 +721,10 @@
                 document.title = 'BTC: $0.00';
             }
 
+            elements.cvdData.textContent = formatDollar(cvdCumulative);
+            elements.oiData.textContent = formatDollar(oiCumulative);
+            elements.liqData.textContent = formatDollar(liquidationDelta, true);
+
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             elements.loadingOverlay.style.display = 'none';
 
@@ -708,7 +733,14 @@
             window.addEventListener('beforeunload', () => {
                 krakenWs.close();
                 bybitWs.close();
+                saveToStorage();
             });
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('Service Worker registered:', reg))
+                    .catch(err => console.error('Service Worker registration failed:', err));
+            }
         })();
     </script>
 </body>
