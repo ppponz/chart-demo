@@ -19,7 +19,7 @@
 <body>
     <div id="loading-overlay"><div id="loading-text">Loading historical data...</div></div>
     <div id="container">
-        <div id="header"><h1>BTC-USD Price, CVD, OI, and Liquidations</h1></div>
+        <div id="header"><h1>BTC-USD Price, CVD, OI, and Liquidations (5-min Candles)</h1></div>
         <div id="price-chart"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
@@ -41,7 +41,6 @@
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes for bars
-            const CVD_BUCKET = 1000; // 1 second
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
@@ -60,22 +59,22 @@
             let historicalData = [];
             let currentBar = null;
             let liquidations = [];
-            let liquidationDeltaData = [];
-            let liquidationDeltaCumulative = 0;
+            let liqCandleData = [];
+            let currentLiqCandle = null;
             let titleTimeout = null;
             let tradeCount = 0;
             let lastLogTime = Date.now();
             let lastBtcPrice = 0;
-            let openInterestData = [];
-            let cvdData = [];
+            let oiCandleData = [];
+            let currentOiCandle = null;
+            let cvdCandleData = [];
+            let currentCvdCandle = null;
             let cvdCumulative = 0;
-            let cvdBuffer = [];
             let lastOiTime = Math.floor(Date.now() / 1000);
-            let cvdUpdateCount = 0;
+            let liquidationDeltaCumulative = 0;
             let bybitMessageCount = 0;
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
-            const isValidDataPoint = (point) => point && typeof point === 'object' && Number.isFinite(point.time) && Number.isFinite(point.value) && !isNaN(point.time) && !isNaN(point.value) && point.value !== null;
             const debounceTitle = (price) => {
                 if (titleTimeout) clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => document.title = `BTC: $${price.toFixed(2)}`, TITLE_DELAY);
@@ -147,10 +146,13 @@
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const cvdSeries = cvdChart.addLineSeries({ 
-                color: '#888888', 
-                lineWidth: 1, 
-                title: 'CV' 
+            const cvdSeries = cvdChart.addCandlestickSeries({
+                upColor: '#00E676',
+                downColor: '#ef5350',
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888',
+                title: 'CVD'
             });
 
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
@@ -161,10 +163,13 @@
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const oiSeries = oiChart.addLineSeries({ 
-                color: '#888888', 
-                lineWidth: 1, 
-                title: 'OI' 
+            const oiSeries = oiChart.addCandlestickSeries({
+                upColor: '#00E676',
+                downColor: '#ef5350',
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888',
+                title: 'OI'
             });
 
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
@@ -175,21 +180,25 @@
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const liqDeltaSeries = liqChart.addLineSeries({ 
-                color: '#888888', 
-                lineWidth: 1, 
-                title: 'LD' 
+            const liqSeries = liqChart.addCandlestickSeries({
+                upColor: '#00E676',
+                downColor: '#ef5350',
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888',
+                title: 'LIQ'
             });
 
             const initTime = Math.floor(Date.now() / 1000);
+            const initBarTime = Math.floor(initTime / BAR_INTERVAL) * BAR_INTERVAL;
             console.log('Setting initial data');
-            priceSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
-            cvdData = [{ time: initTime, value: 0 }];
-            cvdSeries.setData(cvdData);
-            openInterestData = [{ time: initTime, value: 0 }];
-            oiSeries.setData(openInterestData);
-            liquidationDeltaData = [{ time: initTime, value: 0 }];
-            liqDeltaSeries.setData(liquidationDeltaData);
+            priceSeries.setData([{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }]);
+            cvdCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
+            cvdSeries.setData(cvdCandleData);
+            oiCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
+            oiSeries.setData(oiCandleData);
+            liqCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
+            liqSeries.setData(liqCandleData);
             priceChart.timeScale().scrollToRealTime();
             cvdChart.timeScale().scrollToRealTime();
             oiChart.timeScale().scrollToRealTime();
@@ -264,32 +273,104 @@
                     console.log('Binance OI response:', data);
 
                     const now = Math.floor(Date.now() / 1000);
-                    openInterestData = [{
-                        time: now,
-                        value: parseFloat(data.openInterest)
-                    }].filter(isValidDataPoint);
-                    console.log(`Fetched ${openInterestData.length} OI points`, openInterestData);
+                    const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
+                    oiCandleData = [{
+                        time: barTime,
+                        open: parseFloat(data.openInterest),
+                        high: parseFloat(data.openInterest),
+                        low: parseFloat(data.openInterest),
+                        close: parseFloat(data.openInterest)
+                    }].filter(isValidBar);
+                    console.log(`Fetched initial OI candle`, oiCandleData);
                     lastOiTime = now;
                     try {
-                        oiSeries.setData(openInterestData);
+                        oiSeries.setData(oiCandleData);
+                        currentOiCandle = { ...oiCandleData[0] };
                     } catch (e) {
-                        console.error('Binance OI setData failed:', e, openInterestData);
+                        console.error('Binance OI setData failed:', e, oiCandleData);
                     }
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
                     console.error('Binance OI fetch failed:', error);
                     const now = Math.floor(Date.now() / 1000);
-                    openInterestData = Array.from({ length: 10 }, (_, i) => ({
-                        time: now - (10 - i) * 300,
-                        value: 1000000 + i * 1000
-                    }));
+                    const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
+                    oiCandleData = [{ time: barTime, open: 1000000, high: 1000000, low: 1000000, close: 1000000 }];
                     lastOiTime = now;
-                    console.log('Using mock OI data:', openInterestData);
+                    console.log('Using mock OI data:', oiCandleData);
                     try {
-                        oiSeries.setData(openInterestData);
+                        oiSeries.setData(oiCandleData);
+                        currentOiCandle = { ...oiCandleData[0] };
                     } catch (e) {
-                        console.error('OI mock setData failed:', e, openInterestData);
+                        console.error('OI mock setData failed:', e, oiCandleData);
                     }
+                }
+            }
+
+            function updateCvdCandle(timestamp, value) {
+                const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+                
+                if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
+                    if (currentCvdCandle && isValidBar(currentCvdCandle)) {
+                        cvdCandleData.push(currentCvdCandle);
+                        if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
+                        cvdSeries.setData(cvdCandleData);
+                    }
+                    currentCvdCandle = { time: barTime, open: cvdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
+                }
+                
+                cvdCumulative += value;
+                currentCvdCandle.high = Math.max(currentCvdCandle.high, cvdCumulative);
+                currentCvdCandle.low = Math.min(currentCvdCandle.low, cvdCumulative);
+                currentCvdCandle.close = cvdCumulative;
+                
+                if (isValidBar(currentCvdCandle)) {
+                    cvdSeries.update(currentCvdCandle);
+                    cvdChart.timeScale().scrollToRealTime();
+                }
+            }
+
+            function updateOiCandle(timestamp, value) {
+                const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+                
+                if (!currentOiCandle || currentOiCandle.time !== barTime) {
+                    if (currentOiCandle && isValidBar(currentOiCandle)) {
+                        oiCandleData.push(currentOiCandle);
+                        if (oiCandleData.length > MAX_BARS) oiCandleData = oiCandleData.slice(-MAX_BARS);
+                        oiSeries.setData(oiCandleData);
+                    }
+                    currentOiCandle = { time: barTime, open: value, high: value, low: value, close: value };
+                } else {
+                    currentOiCandle.high = Math.max(currentOiCandle.high, value);
+                    currentOiCandle.low = Math.min(currentOiCandle.low, value);
+                    currentOiCandle.close = value;
+                }
+                
+                if (isValidBar(currentOiCandle)) {
+                    oiSeries.update(currentOiCandle);
+                    oiChart.timeScale().scrollToRealTime();
+                }
+            }
+
+            function updateLiqCandle(timestamp, value, side) {
+                const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+                
+                if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
+                    if (currentLiqCandle && isValidBar(currentLiqCandle)) {
+                        liqCandleData.push(currentLiqCandle);
+                        if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
+                        liqSeries.setData(liqCandleData);
+                    }
+                    currentLiqCandle = { time: barTime, open: liquidationDeltaCumulative, high: liquidationDeltaCumulative, low: liquidationDeltaCumulative, close: liquidationDeltaCumulative };
+                }
+                
+                liquidationDeltaCumulative += (side === 'Sell' ? value : -value);
+                currentLiqCandle.high = Math.max(currentLiqCandle.high, liquidationDeltaCumulative);
+                currentLiqCandle.low = Math.min(currentLiqCandle.low, liquidationDeltaCumulative);
+                currentLiqCandle.close = liquidationDeltaCumulative;
+                
+                if (isValidBar(currentLiqCandle)) {
+                    liqSeries.update(currentLiqCandle);
+                    liqChart.timeScale().scrollToRealTime();
                 }
             }
 
@@ -305,18 +386,9 @@
                     const data = await response.json();
                     console.log('Live Binance OI response:', data);
                     const now = Math.floor(Date.now() / 1000);
-                    const newPoint = { time: now, value: parseFloat(data.openInterest) };
-                    if (isValidDataPoint(newPoint)) {
-                        openInterestData.push(newPoint);
-                        if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
-                        lastOiTime = now;
-                        console.log('Live OI update:', newPoint);
-                        try {
-                            oiSeries.update(newPoint);
-                            oiChart.timeScale().scrollToRealTime();
-                        } catch (e) {
-                            console.error('Binance OI live update failed:', e, 'Data:', openInterestData);
-                        }
+                    const value = parseFloat(data.openInterest);
+                    if (Number.isFinite(value)) {
+                        updateOiCandle(now, value);
                     }
                 } catch (error) {
                     console.error('Binance live OI fetch failed:', error);
@@ -353,7 +425,7 @@
                         } else {
                             currentBar.high = Math.max(currentBar.high, price);
                             currentBar.low = Math.min(currentBar.low, price);
-                            currentBar.close = price; // Update close live within candle
+                            currentBar.close = price;
                         }
 
                         console.log('Live trade update:', { price, bar: currentBar });
@@ -376,32 +448,6 @@
                 elements.krakenStatus
             );
 
-            function aggregateCVD() {
-                if (cvdBuffer.length === 0) return;
-                const bucketTime = Math.floor(cvdBuffer[0].timestamp / (CVD_BUCKET / 1000)) * (CVD_BUCKET / 1000);
-                const bucketValue = cvdBuffer.reduce((sum, trade) => sum + trade.value, 0);
-                cvdCumulative += bucketValue;
-                const newPoint = { time: bucketTime, value: cvdCumulative };
-                cvdData.push(newPoint);
-                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
-                cvdUpdateCount++;
-                if (cvdUpdateCount % 5 === 0) {
-                    console.log('CVD data points pre-update:', cvdData.slice(-5));
-                    console.log('Live CVD update:', newPoint);
-                }
-                console.log('Raw CVD data before update:', cvdData);
-                try {
-                    cvdSeries.update(newPoint);
-                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
-                    cvdChart.timeScale().scrollToRealTime();
-                } catch (e) {
-                    console.error('CVD live update failed:', e, 'Data:', cvdData);
-                }
-                cvdBuffer = [];
-            }
-
-            setInterval(aggregateCVD, CVD_BUCKET);
-
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
@@ -419,8 +465,7 @@
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
                                 liquidations.push({ time: Math.floor(timestamp), qty: liqValue, side });
-                                console.log('Liquidation event:', { time: timestamp, qty: liqValue, side });
-                                updateLiquidationChart();
+                                updateLiqCandle(timestamp, liqValue, side);
                             } else {
                                 console.warn('Invalid liquidation data:', { side, qty, time });
                             }
@@ -432,7 +477,7 @@
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                cvdBuffer.push({ timestamp, value: volume * side });
+                                updateCvdCandle(timestamp, volume * side);
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -444,47 +489,6 @@
                 'Bybit',
                 elements.bybitStatus
             );
-
-            function updateLiquidationChart() {
-                const now = Math.floor(Date.now() / 1000);
-                const cutoff = now - 24 * 60 * 60;
-                liquidations = liquidations.filter(liq => liq.time >= cutoff && Number.isFinite(liq.time) && Number.isFinite(liq.qty));
-                console.log('Liquidations processed:', liquidations.slice(-5));
-
-                if (liquidations.length > 0) {
-                    liquidationDeltaCumulative = liquidations.reduce((acc, liq) => {
-                        return acc + (liq.side === 'Sell' ? liq.qty : -liq.qty);
-                    }, 0);
-                    liquidationDeltaData = liquidations.map(liq => ({
-                        time: liq.time,
-                        value: liq.side === 'Sell' ? liquidationDeltaCumulative += liq.qty : liquidationDeltaCumulative -= liq.qty
-                    })).filter(isValidDataPoint);
-                    console.log('Liquidation delta pre-update:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
-                    try {
-                        const latestLiq = liquidationDeltaData[liquidationDeltaData.length - 1];
-                        liqDeltaSeries.update(latestLiq);
-                        liqChart.timeScale().scrollToRealTime();
-                    } catch (e) {
-                        console.error('Liq Delta update failed:', e, 'Data:', liquidationDeltaData);
-                    }
-                } else {
-                    const mockTime = now;
-                    liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
-                    liquidationDeltaCumulative = 0;
-                    liquidationDeltaData = [
-                        { time: mockTime, value: -100 },
-                        { time: mockTime, value: -100 + 50 }
-                    ];
-                    liquidationDeltaCumulative = -50;
-                    console.log('Mock liquidation delta pre-setData:', liquidationDeltaData, 'Cumulative:', liquidationDeltaCumulative);
-                    try {
-                        liqDeltaSeries.setData(liquidationDeltaData);
-                        liqChart.timeScale().fitContent();
-                    } catch (e) {
-                        console.error('Liq Delta setData failed:', e, liquidationDeltaData);
-                    }
-                }
-            }
 
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
