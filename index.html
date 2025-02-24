@@ -2,22 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
-    <script src="https://unpkg.com/lightweight-charts@5.0.2/dist/lightweight-charts.standalone.production.js" id="lw-charts"></script>
-    <script>
-        // Check v5 load, fallback to v4 if needed
-        window.addEventListener('load', () => {
-            if (typeof LightweightCharts === 'undefined' || !LightweightCharts.createChart || typeof LightweightCharts.createChart !== 'function') {
-                console.log('v5.0.2 failed to load properly, falling back to v4.0.1');
-                const script = document.createElement('script');
-                script.src = 'https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js';
-                script.onload = () => console.log('Fallback v4.0.1 loaded');
-                script.onerror = () => console.error('Fallback v4.0.1 failed to load');
-                document.head.appendChild(script);
-            } else {
-                console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
-            }
-        });
-    </script>
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
@@ -44,10 +29,9 @@
     <div id="bybit-status">Bybit: Connecting</div>
     <script>
         (async () => {
-            // Wait for LightweightCharts to load
-            while (typeof LightweightCharts === 'undefined' || !LightweightCharts.createChart) {
-                console.log('Waiting for LightweightCharts to load...');
-                await new Promise(resolve => setTimeout(resolve, 100));
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts v4.0.1 failed to load');
+                return;
             }
             console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
 
