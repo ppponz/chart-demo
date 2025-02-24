@@ -41,6 +41,7 @@
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
             const OI_INTERVAL = '5m'; // 5-minute OI data
+            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000; // 24 hours back
 
             // DOM elements
             const elements = {
@@ -271,7 +272,7 @@
                 const endTime = Math.floor(Date.now() / 1000) * 1000;
                 const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000);
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -288,8 +289,9 @@
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
                     console.error('Bybit OI fetch failed:', error);
+                    const now = Math.floor(Date.now() / 1000);
                     openInterestData = Array.from({ length: 10 }, (_, i) => ({
-                        time: initTime - (10 - i) * 300,
+                        time: now - (10 - i) * 300,
                         value: 1000000 + i * 1000
                     }));
                     console.log('Using mock OI data:', openInterestData);
@@ -299,8 +301,10 @@
 
             // Fetch live Bybit OI (REST polling)
             async function fetchBybitOpenInterestLive() {
+                const endTime = Math.floor(Date.now() / 1000) * 1000;
+                const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -421,6 +425,9 @@
                                 console.log('CVD data points pre-setData:', cvdData.slice(-5));
                                 cvdSeries.setData(cvdData);
                                 console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
+                                // Sync OI chart to avoid conflicts
+                                oiSeries.setData(openInterestData);
+                                console.log('OI series synced:', openInterestData.slice(-5));
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -440,6 +447,10 @@
                 const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
                 const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
                 console.log('Updating liquidation chart:', { long: longLiqs.length, short: shortLiqs.length }, longLiqs.slice(-5), shortLiqs.slice(-5));
+                if (longLiqs.length === 0 && shortLiqs.length === 0) {
+                    const mockTime = now;
+                    liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
+                }
                 longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
                 shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
                 liqChart.timeScale().fitContent();
