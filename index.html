@@ -51,7 +51,7 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
-            const LIQ_SENSITIVITY = 100; // Reduced from 1000 to 100
+            const LIQ_SENSITIVITY = 100;
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -464,6 +464,11 @@
                     try {
                         const data = JSON.parse(event.data);
                         console.log('Raw Bybit message:', data);
+
+                        // Log subscription confirmation
+                        if (data.success && data.op === 'subscribe') {
+                            console.log('Bybit subscription confirmed:', data);
+                        }
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                             const liquidationData = data.data;
