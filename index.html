@@ -352,15 +352,21 @@
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
                         lastOiValue = value;
-                        oiCandleData = [{ time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative }];
+                        oiCandleData = historicalData.map(bar => ({
+                            time: bar.time,
+                            open: oiCumulative,
+                            high: oiCumulative,
+                            low: oiCumulative,
+                            close: oiCumulative
+                        }));
                         oiSeries.setData(oiCandleData);
-                        oiZeroLine.setData([{ time: barTime, value: 0 }]);
-                        currentOiCandle = { ...oiCandleData[0] };
+                        oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
+                        currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
                         elements.oiData.textContent = formatValue(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
                         connectionStatus.binance = true;
                         updateConnectionStatus();
-                        console.log('Initialized OI with:', oiCandleData[0]);
+                        console.log('Initialized OI with:', oiCandleData[oiCandleData.length - 1]);
                     }
                 } catch (error) {
                     console.error('Initial Binance OI fetch failed:', error);
@@ -368,10 +374,16 @@
                     updateConnectionStatus();
                     const now = Math.floor(Date.now() / 1000);
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                    oiCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                    oiCandleData = historicalData.map(bar => ({
+                        time: bar.time,
+                        open: 0,
+                        high: 0,
+                        low: 0,
+                        close: 0
+                    }));
                     oiSeries.setData(oiCandleData);
-                    oiZeroLine.setData([{ time: barTime, value: 0 }]);
-                    currentOiCandle = { ...oiCandleData[0] };
+                    oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
+                    currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     elements.oiData.textContent = '0';
                     updateColor(elements.oiData, 0);
                 }
@@ -504,7 +516,7 @@
                 
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
-                    oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 }))); // Update zero line
+                    oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
                     elements.oiData.textContent = formatValue(oiCumulative);
                     updateColor(elements.oiData, oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
