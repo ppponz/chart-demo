@@ -54,7 +54,7 @@
                 oiChart: document.getElementById('oi-chart'),
                 loadingOverlay: document.getElementById('loading-overlay'),
                 krakenStatus: document.getElementById('kraken-status'),
-                bybitStatus: document.getElementById('bybitStatus')
+                bybitStatus: document.getElementById('bybit-status') // Fixed typo
             };
 
             let historicalData = [];
@@ -95,7 +95,7 @@
 
                 ws.onopen = () => {
                     console.log(`${label} WebSocket connected`);
-                    statusElement.textContent = `${label}: Connected`;
+                    if (statusElement) statusElement.textContent = `${label}: Connected`;
                     statusElement.style.color = '#00E676';
                     onOpen(ws);
                     reconnectDelay = 2000;
@@ -105,13 +105,13 @@
 
                 ws.onerror = (error) => {
                     console.error(`${label} WebSocket error:`, error);
-                    statusElement.textContent = `${label}: Error`;
+                    if (statusElement) statusElement.textContent = `${label}: Error`;
                     statusElement.style.color = '#ef5350';
                 };
 
                 ws.onclose = () => {
                     console.log(`${label} WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
-                    statusElement.textContent = `${label}: Reconnecting (${reconnectDelay/1000}s)`;
+                    if (statusElement) statusElement.textContent = `${label}: Reconnecting (${reconnectDelay/1000}s)`;
                     statusElement.style.color = '#ef5350';
                     setTimeout(() => {
                         ws = createWebSocket(url, onOpen, onMessage, label, statusElement);
@@ -254,7 +254,7 @@
                     const startTime = now - BAR_INTERVAL * 2;
                     const url = `${BINANCE_OI_HIST_URL}?symbol=BTCUSDT&period=5m&limit=2&startTime=${startTime * 1000}`;
                     console.log(`Fetching Binance OI History: ${url}`);
-                    const response = await fetch(url);
+                    const response = await fetch(url, { mode: 'cors' });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
                     console.log('Binance OI Historical response:', data);
@@ -388,6 +388,7 @@
                 currentLiqCandle.close = liquidationDeltaCumulative;
                 
                 if (isValidBar(currentLiqCandle)) {
+                    console.log('Updating liquidation candle:', currentLiqCandle);
                     liqSeries.update(currentLiqCandle);
                     liqChart.timeScale().scrollToRealTime();
                 }
@@ -473,16 +474,14 @@
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (bybitMessageCount < 5) {
-                            console.log('Raw Bybit message:', data);
-                            bybitMessageCount++;
-                        }
+                        console.log('Raw Bybit message:', data); // Log all messages for debugging
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                             const { side, qty, time } = data.data;
                             const timestamp = parseInt(time) / 1000;
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
+                                console.log('Processing liquidation:', { timestamp, liqValue, side });
                                 liquidations.push({ time: Math.floor(timestamp), qty: liqValue, side });
                                 updateLiqCandle(timestamp, liqValue, side);
                             } else {
@@ -496,6 +495,7 @@
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
+                                console.log('Processing trade for CVD:', { timestamp, volume, side });
                                 updateCvdCandle(timestamp, volume * side);
                             } else {
                                 console.warn('Invalid trade data:', trade);
