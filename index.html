@@ -653,9 +653,7 @@
 
                         if (data.success && data.op === 'subscribe') {
                             console.log('Bybit subscription confirmed:', data);
-                        }
-
-                        if (data.topic === 'liquidation.BTCUSDT' && data.data) {
+                        } else if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                             const liquidationData = data.data;
                             const timestamp = Math.floor(parseInt(data.ts) / 1000);
                             const liqValue = parseFloat(liquidationData.qty || 0);
@@ -678,7 +676,7 @@
                                 console.warn('Invalid trade data:', trade);
                             }
                         } else {
-                            console.log('No liquidation data received yet from Bybit:', data.topic || 'Unknown topic');
+                            console.log('No liquidation data received yet from Bybit:', data.topic || 'No topic');
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
@@ -705,17 +703,11 @@
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            setInterval(fetchBybitLiquidationsFallback, 30000); // Fallback every 30 seconds
+            fetchBybitLiquidationsFallback(); // Immediate REST call
+            setInterval(fetchBybitLiquidationsFallback, 30000);
             elements.loadingOverlay.style.display = 'none';
 
-            window.addEventListener('resize', () => {
-                priceChart.resize(elements.priceChart.offsetWidth, elements.priceChart.offsetHeight);
-                cvdChart.resize(elements.cvdChart.offsetWidth, elements.cvdChart.offsetHeight);
-                oiChart.resize(elements.oiChart.offsetWidth, elements.oiChart.offsetHeight);
-                liqChart.resize(elements.liqChart.offsetWidth, elements.liqChart.offsetHeight);
-            });
-
-            window.addEventListener('unload', () => {
+            window.addEventListener('beforeunload', () => {
                 krakenWs.close();
                 bybitWs.close();
             });
