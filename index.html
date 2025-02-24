@@ -49,9 +49,9 @@
             const BAR_INTERVAL = 300; // 5 minutes for bars
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
-            const OI_POLL_INTERVAL = 1000; // 1s for faster updates
+            const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
-            const LIQ_SENSITIVITY = 1000; // Sensitivity factor for liquidation data
+            const LIQ_SENSITIVITY = 1000;
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -80,7 +80,6 @@
             let currentCvdCandle = null;
             let cvdCumulative = 0;
             let liquidationDelta = 0;
-            let chartsInitialized = false;
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const debounceTitle = (price) => {
@@ -225,19 +224,19 @@
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
-                        oiCandleData = [{ time: barTime, open: value, high: value, low: value, close: value }];
+                        oiCandleData = historicalData.concat([{ time: barTime, open: value, high: value, low: value, close: value }]);
                         oiSeries.setData(oiCandleData);
-                        currentOiCandle = { ...oiCandleData[0] };
+                        currentOiCandle = { time: barTime, open: value, high: value, low: value, close: value };
                         elements.oiValue.textContent = `OI: ${formatValue(value)}`;
-                        console.log('Initialized OI with:', oiCandleData[0]);
+                        console.log('Initialized OI with:', currentOiCandle);
                     }
                 } catch (error) {
                     console.error('Initial Binance OI fetch failed:', error);
                     const now = Math.floor(Date.now() / 1000);
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                    oiCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                    oiCandleData = historicalData.concat([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
                     oiSeries.setData(oiCandleData);
-                    currentOiCandle = { ...oiCandleData[0] };
+                    currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     elements.oiValue.textContent = `OI: 0`;
                 }
             }
@@ -291,15 +290,15 @@
                     console.log('Setting historical data to chart:', historicalData);
 
                     priceSeries.setData(historicalData);
-                    cvdCandleData = [];
-                    liqCandleData = [];
+                    cvdCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    cvdSeries.setData(cvdCandleData);
+                    liqSeries.setData(liqCandleData);
                     await fetchInitialOpenInterest();
 
-                    setTimeout(() => {
-                        syncTimeScales();
-                        priceChart.timeScale().scrollToRealTime();
-                        chartsInitialized = true;
-                    }, 100);
+                    priceChart.timeScale().fitContent();
+                    syncTimeScales();
+                    priceChart.timeScale().scrollToRealTime();
 
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
@@ -311,7 +310,6 @@
             }
 
             function updateCvdCandle(timestamp, value) {
-                if (!chartsInitialized) return;
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 
                 if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
@@ -335,7 +333,6 @@
             }
 
             function updateOiCandle(timestamp, value) {
-                if (!chartsInitialized) return;
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
@@ -358,7 +355,6 @@
             }
 
             function updateLiqCandle(timestamp, value, side) {
-                if (!chartsInitialized) return;
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 const adjustedValue = value * LIQ_SENSITIVITY;
                 const delta = (side === 'Sell' ? adjustedValue : -adjustedValue);
@@ -444,7 +440,7 @@
                             priceSeries.update(currentBar);
                             lastBtcPrice = currentBar.close;
                             const lastHistoricalTime = historicalData[historicalData.length - 1]?.time || 0;
-                            if (currentBar.time > lastHistoricalTime + BAR_INTERVAL && chartsInitialized) {
+                            if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
                             }
                             debounceTitle(price);
@@ -466,14 +462,14 @@
                         console.log('Raw Bybit message:', data);
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
-                            const { side, qty, time } = data.data;
-                            const timestamp = parseInt(time) / 1000;
+                            const { side, qty, time, price, orderId } = data.data; // Adjusted for Bybit v5 liquidation format
+                            const timestamp = Math.floor(parseInt(time) / 1000);
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
                                 console.log('Processing liquidation:', { timestamp, liqValue, side });
                                 updateLiqCandle(timestamp, liqValue, side);
                             } else {
-                                console.warn('Invalid liquidation data:', { side, qty, time });
+                                console.warn('Invalid liquidation data:', { side, qty, time, price, orderId });
                             }
                         }
 
@@ -504,20 +500,20 @@
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
                 priceSeries.setData(historicalData);
-                cvdCandleData = [];
-                liqCandleData = [];
+                cvdCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                cvdSeries.setData(cvdCandleData);
+                liqSeries.setData(liqCandleData);
                 await fetchInitialOpenInterest();
-                setTimeout(() => {
-                    syncTimeScales();
-                    priceChart.timeScale().scrollToRealTime();
-                    chartsInitialized = true;
-                }, 100);
+                priceChart.timeScale().fitContent();
+                syncTimeScales();
+                priceChart.timeScale().scrollToRealTime();
                 currentBar = { ...historicalData[0] };
                 document.title = 'BTC: $0.00';
             }
 
             priceChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
-                if (range && chartsInitialized) {
+                if (range) {
                     cvdChart.timeScale().setVisibleRange(range);
                     oiChart.timeScale().setVisibleRange(range);
                     liqChart.timeScale().setVisibleRange(range);
