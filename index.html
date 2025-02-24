@@ -41,6 +41,7 @@
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
             const OI_INTERVAL = '5m'; // 5-minute OI data
+            const OI_LIVE_RANGE = 60 * 60 * 1000; // 1 hour back for live OI
 
             // DOM elements
             const elements = {
@@ -229,7 +230,7 @@
                 const endTime = Math.floor(Date.now() / 1000) * 1000;
                 const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000);
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&startTime=${startTime}&endTime=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -253,8 +254,10 @@
 
             // Fetch live Bybit OI (REST polling)
             async function fetchBybitOpenInterestLive() {
+                const endTime = Math.floor(Date.now() / 1000) * 1000;
+                const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -268,13 +271,11 @@
                             time: Math.floor(parseInt(item.timestamp) / 1000),
                             value: parseFloat(item.openInterest || 0)
                         })).filter(isValidDataPoint).reverse();
-                        openInterestData = [...new Set([...openInterestData, ...newData].map(JSON.stringify))].map(JSON.parse);
+                        openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
                         if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
-                        console.log('Processed OI data:', openInterestData.slice(-5));
-                        setTimeout(() => {
-                            oiSeries.setData(openInterestData);
-                            console.log('Live OI update:', newData.slice(-1));
-                        }, 100);
+                        console.log('Processed OI data pre-setData:', openInterestData.slice(-5));
+                        oiSeries.setData(openInterestData);
+                        console.log('Live OI update:', newData.slice(-1));
                     } else {
                         console.warn('Empty or invalid OI response:', data);
                     }
@@ -283,6 +284,7 @@
                 }
             }
             setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL);
+            setInterval(updateLiquidationChart, 5000); // Periodic liquidation update
 
             // WebSocket handler factory
             function createWebSocket(url, onOpen, onMessage, label, statusElement) {
@@ -390,7 +392,6 @@
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
                                 liquidations.push({ time: timestamp, qty: liqValue, side });
                                 console.log('Liquidation event:', { time: timestamp, qty: liqValue, side });
-                                
                                 updateLiquidationChart();
                             } else {
                                 console.warn('Invalid liquidation data:', { side, qty, time });
@@ -404,10 +405,10 @@
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
                                 cvdCumulative += volume * side;
-                                cvdData.push({ time: timestamp, value: cvdCumulative });
-                                if (cvdData.length > MAX_BARS) cvdData.shift();
-                                console.log('CVD data points:', cvdData.slice(-5));
-                                setTimeout(() => cvdSeries.setData(cvdData.filter(isValidDataPoint)), 100);
+                                cvdData = [...cvdData.filter(d => isValidDataPoint(d)), { time: timestamp, value: cvdCumulative }];
+                                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
+                                console.log('CVD data points pre-setData:', cvdData.slice(-5));
+                                cvdSeries.setData(cvdData);
                                 console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
                             } else {
                                 console.warn('Invalid trade data:', trade);
