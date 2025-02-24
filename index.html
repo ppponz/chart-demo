@@ -9,7 +9,7 @@
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
         #price-chart { height: 373px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
-        .chart-wrapper { height: 73px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 80px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -29,32 +29,30 @@
     <div id="bybit-status">Bybit: Connecting</div>
     <script>
         (async () => {
-            // Constants
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BYBIT_OI_URL = 'https://api.bybit.com/v5/market/open-interest';
             const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300; // 5 minutes in seconds
+            const BAR_INTERVAL = 300; // 5 minutes
             const MAX_BARS = 2016; // 7 days of 5-min bars
-            const TITLE_DELAY = 1000; // 1s debounce for tab title
-            const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
-            const MAX_RECONNECT_DELAY = 16000; // 16s
-            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000; // 24 hours back
+            const TITLE_DELAY = 1000;
+            const OI_POLL_INTERVAL = 5000;
+            const MAX_RECONNECT_DELAY = 16000;
+            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000;
+            const OI_INTERVAL = '5m';
+            const CVD_BUCKET = 5000; // 5 seconds
 
-            // DOM elements
             const elements = {
                 priceChart: document.getElementById('price-chart'),
                 liqChart: document.getElementById('liq-chart'),
                 cvdChart: document.getElementById('cvd-chart'),
                 oiChart: document.getElementById('oi-chart'),
                 loadingOverlay: document.getElementById('loading-overlay'),
-                loadingText: document.getElementById('loading-text'),
                 krakenStatus: document.getElementById('kraken-status'),
                 bybitStatus: document.getElementById('bybit-status')
             };
 
-            // State
             let historicalData = [];
             let liquidations = [];
             let liquidationDeltaData = [];
@@ -69,18 +67,11 @@
             let cvdCumulative = 0;
             let lastOiTime = Math.floor(Date.now() / 1000);
             let cvdUpdateCount = 0;
+            let bybitMessageCount = 0;
+            let cvdBuffer = []; // Aggregate trades
 
-            // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
-            const isValidDataPoint = (point) => {
-                return point && 
-                       typeof point === 'object' &&
-                       Number.isFinite(point.time) && 
-                       Number.isFinite(point.value) &&
-                       !isNaN(point.time) && 
-                       !isNaN(point.value) &&
-                       point.value !== null;
-            };
+            const isValidDataPoint = (point) => point && typeof point === 'object' && Number.isFinite(point.time) && Number.isFinite(point.value) && !isNaN(point.time) && !isNaN(point.value) && point.value !== null;
             const debounceTitle = (price) => {
                 if (titleTimeout) clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => document.title = `BTC: $${price.toFixed(2)}`, TITLE_DELAY);
@@ -94,7 +85,6 @@
                 }
             };
 
-            // WebSocket handler factory
             function createWebSocket(url, onOpen, onMessage, label, statusElement) {
                 let ws = new WebSocket(url);
                 let reconnectDelay = 2000;
@@ -128,8 +118,6 @@
                 return ws;
             }
 
-            // Chart setup
-            console.log('Initializing price chart');
             const priceChart = LightweightCharts.createChart(elements.priceChart, {
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
@@ -147,11 +135,10 @@
                 wickDownColor: '#888888'
             });
 
-            console.log('Initializing liquidation delta chart');
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -159,14 +146,13 @@
             const liqDeltaSeries = liqChart.addLineSeries({ 
                 color: '#888888', 
                 lineWidth: 1, 
-                title: 'LD' // Short + / Long -
+                title: 'LD' 
             });
 
-            console.log('Initializing CVD chart');
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -177,11 +163,10 @@
                 title: 'CV' 
             });
 
-            console.log('Initializing OI chart');
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -192,7 +177,6 @@
                 title: 'OI' 
             });
 
-            // Initialize with zero
             const initTime = Math.floor(Date.now() / 1000);
             console.log('Setting initial data');
             candleSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
@@ -207,7 +191,6 @@
             cvdChart.timeScale().scrollToRealTime();
             oiChart.timeScale().scrollToRealTime();
 
-            // Fetch historical data (Kraken OHLC)
             async function fetchHistoricalData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
@@ -263,16 +246,15 @@
                 }
             }
 
-            // Mock historical CVD
             async function fetchHistoricalCVD() {
                 try {
                     const now = Math.floor(Date.now() / 1000);
                     const startTime = now - (HISTORY_DAYS * 24 * 60 * 60);
                     cvdData = Array.from({ length: 100 }, (_, i) => ({
                         time: startTime + (i * BAR_INTERVAL),
-                        value: -500 + (i * 5) // Mock -500 to 0 range
+                        value: -500 + (i * 5) // Mock -500 to 0
                     }));
-                    cvdCumulative = cvdData[cvdData.length - 1].value;
+                    cvdCumulative = cvdData[cvdData.length - 1].value; // 0
                     console.log(`Mocked ${cvdData.length} CVD points`, cvdData.slice(0, 5));
                     try {
                         cvdSeries.setData(cvdData);
@@ -285,12 +267,11 @@
                 }
             }
 
-            // Fetch Bybit historical open interest (24h)
             async function fetchBybitOpenInterest() {
                 const endTime = Date.now();
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -327,12 +308,11 @@
                 }
             }
 
-            // Fetch live Bybit OI (REST polling)
             async function fetchBybitOpenInterestLive() {
                 const endTime = Date.now();
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -364,7 +344,6 @@
                 }
             }
 
-            // Kraken WebSocket (Price only)
             const krakenWs = createWebSocket(
                 KRAKEN_WS_URL,
                 (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
@@ -374,7 +353,7 @@
                         console.log('Raw Kraken message:', data);
 
                         if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') {
-                            return; // Silent skip
+                            return;
                         }
 
                         const trade = data[1][0];
@@ -419,14 +398,36 @@
                 elements.krakenStatus
             );
 
-            // Bybit WebSocket (CVD, OI, Liquidations)
+            function aggregateCVD() {
+                if (cvdBuffer.length === 0) return;
+                const bucketTime = Math.floor(cvdBuffer[0].timestamp / (CVD_BUCKET / 1000)) * (CVD_BUCKET / 1000);
+                const bucketValue = cvdBuffer.reduce((sum, trade) => sum + trade.value, 0);
+                cvdCumulative += bucketValue;
+                cvdData = [...cvdData.filter(d => isValidDataPoint(d)), { time: bucketTime, value: cvdCumulative }];
+                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
+                cvdUpdateCount++;
+                if (cvdUpdateCount % 5 === 0) {
+                    console.log('CVD data points pre-setData:', cvdData.slice(-5));
+                    console.log('Live CVD update:', { time: bucketTime, value: cvdCumulative });
+                }
+                try {
+                    cvdSeries.setData(cvdData);
+                } catch (e) {
+                    console.error('CVD live setData failed:', e, 'Data:', cvdData);
+                }
+                cvdBuffer = [];
+            }
+
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        console.log('Raw Bybit message:', data);
+                        if (bybitMessageCount < 5) {
+                            console.log('Raw Bybit message:', data);
+                            bybitMessageCount++;
+                        }
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
                             const { side, qty, time } = data.data;
@@ -444,21 +445,12 @@
                         if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
                             const trade = data.data[0];
                             const volume = parseFloat(trade.v);
-                            const side = trade.S === 'Buy' ? 1 : -1; // Buy +, Sell -
+                            const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                cvdCumulative += volume * side;
-                                cvdData = [...cvdData.filter(d => isValidDataPoint(d)), { time: timestamp, value: cvdCumulative }];
-                                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
-                                cvdUpdateCount++;
-                                if (cvdUpdateCount % 5 === 0) {
-                                    console.log('CVD data points pre-setData:', cvdData.slice(-5));
-                                    console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
-                                }
-                                try {
-                                    cvdSeries.setData(cvdData);
-                                } catch (e) {
-                                    console.error('CVD live setData failed:', e, cvdData);
+                                cvdBuffer.push({ timestamp, value: volume * side });
+                                if (cvdBuffer.length >= 10 || Date.now() - cvdBuffer[0].timestamp * 1000 >= CVD_BUCKET) {
+                                    aggregateCVD();
                                 }
                             } else {
                                 console.warn('Invalid trade data:', trade);
@@ -480,7 +472,7 @@
 
                 if (liquidations.length > 0) {
                     liquidationDeltaCumulative = liquidations.reduce((acc, liq) => {
-                        return acc + (liq.side === 'Sell' ? liq.qty : -liq.qty); // Short liqs +, Long liqs -
+                        return acc + (liq.side === 'Sell' ? liq.qty : -liq.qty);
                     }, 0);
                     liquidationDeltaData = liquidations.map(liq => {
                         const delta = liq.side === 'Sell' ? liq.qty : -liq.qty;
@@ -492,10 +484,10 @@
                     liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
                     liquidationDeltaCumulative = 0;
                     liquidationDeltaData = [
-                        { time: mockTime, value: -100 }, // Long liq
-                        { time: mockTime, value: -100 + 50 } // Short liq
+                        { time: mockTime, value: -100 },
+                        { time: mockTime, value: -100 + 50 }
                     ];
-                    liquidationDeltaCumulative = -50; // Net short +50, long -100
+                    liquidationDeltaCumulative = -50;
                 }
 
                 console.log('Liquidation delta pre-setData:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
@@ -507,7 +499,6 @@
                 liqChart.timeScale().fitContent();
             }
 
-            // Main execution
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalData();
             console.log('Starting CVD fetch');
