@@ -46,7 +46,6 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
             const MAX_RECONNECT_DELAY = 16000;
-            const LIQ_SENSITIVITY = 10; // Multiplier for liquidation sensitivity
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -97,7 +96,7 @@
                 ws.onopen = () => {
                     console.log(`${label} WebSocket connected`);
                     statusElement.textContent = `${label}: Connected`;
-                    statusElement.style.color = '#888888';
+                    statusElement.style.color = '#00E676';
                     onOpen(ws);
                     reconnectDelay = 2000;
                 };
@@ -149,8 +148,8 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
-                upColor: '#888888',
-                downColor: '#888888',
+                upColor: '#00E676',
+                downColor: '#ef5350',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
@@ -166,8 +165,8 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const oiSeries = oiChart.addCandlestickSeries({
-                upColor: '#888888',
-                downColor: '#888888',
+                upColor: '#00E676',
+                downColor: '#ef5350',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
@@ -183,8 +182,8 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const liqSeries = liqChart.addCandlestickSeries({
-                upColor: '#888888',
-                downColor: '#888888',
+                upColor: '#00E676',
+                downColor: '#ef5350',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
@@ -314,9 +313,9 @@
                 liqCandleData = [{
                     time: prevBarTime,
                     open: 0,
-                    high: 200 * LIQ_SENSITIVITY,
-                    low: -150 * LIQ_SENSITIVITY,
-                    close: 50 * LIQ_SENSITIVITY
+                    high: 200,
+                    low: -150,
+                    close: 50
                 }];
                 liquidationDeltaCumulative = liqCandleData[0].close;
                 liqSeries.setData(liqCandleData);
@@ -373,8 +372,6 @@
 
             function updateLiqCandle(timestamp, value, side) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
-                const adjustedValue = value * LIQ_SENSITIVITY;
-                const delta = side === 'Sell' ? adjustedValue : -adjustedValue;
                 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
@@ -382,22 +379,15 @@
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         liqSeries.setData(liqCandleData);
                     }
-                    currentLiqCandle = { 
-                        time: barTime, 
-                        open: liquidationDeltaCumulative, 
-                        high: liquidationDeltaCumulative, 
-                        low: liquidationDeltaCumulative, 
-                        close: liquidationDeltaCumulative 
-                    };
+                    currentLiqCandle = { time: barTime, open: liquidationDeltaCumulative, high: liquidationDeltaCumulative, low: liquidationDeltaCumulative, close: liquidationDeltaCumulative };
                 }
                 
-                liquidationDeltaCumulative += delta;
+                liquidationDeltaCumulative += (side === 'Sell' ? value : -value);
                 currentLiqCandle.high = Math.max(currentLiqCandle.high, liquidationDeltaCumulative);
                 currentLiqCandle.low = Math.min(currentLiqCandle.low, liquidationDeltaCumulative);
                 currentLiqCandle.close = liquidationDeltaCumulative;
                 
                 if (isValidBar(currentLiqCandle)) {
-                    console.log('Updating liquidation candle:', currentLiqCandle);
                     liqSeries.update(currentLiqCandle);
                     liqChart.timeScale().scrollToRealTime();
                 }
@@ -483,7 +473,7 @@
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (bybitMessageCount < 10) { // Increased logging to catch more messages
+                        if (bybitMessageCount < 5) {
                             console.log('Raw Bybit message:', data);
                             bybitMessageCount++;
                         }
@@ -493,7 +483,6 @@
                             const timestamp = parseInt(time) / 1000;
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
-                                console.log('Processing liquidation:', { timestamp, liqValue, side });
                                 liquidations.push({ time: Math.floor(timestamp), qty: liqValue, side });
                                 updateLiqCandle(timestamp, liqValue, side);
                             } else {
@@ -512,7 +501,7 @@
                                 console.warn('Invalid trade data:', trade);
                             }
                         }
-                    } Bybitcatch (error) {
+                    } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
                     }
                 },
