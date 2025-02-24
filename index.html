@@ -34,7 +34,7 @@
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300; // 5 minutes
+            const BAR_INTERVAL = 300; // 5 minutes for bars
             const CVD_BUCKET = 1000; // 1 second
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
@@ -239,7 +239,6 @@
                     priceSeries.setData(historicalData);
                     console.log('Historical data set, scrolling to real-time');
                     priceChart.timeScale().scrollToRealTime();
-                    // Initialize currentBar from last historical bar
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
                     return true;
@@ -348,7 +347,7 @@
                         } else {
                             currentBar.high = Math.max(currentBar.high, price);
                             currentBar.low = Math.min(currentBar.low, price);
-                            currentBar.close = price;
+                            currentBar.close = price; // Update close live within candle
                         }
 
                         console.log('Live trade update:', { price, bar: currentBar });
