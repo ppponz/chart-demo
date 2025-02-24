@@ -504,7 +504,7 @@
                 
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
-                    oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
+                    oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 }))); // Update zero line
                     elements.oiData.textContent = formatValue(oiCumulative);
                     updateColor(elements.oiData, oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
@@ -680,8 +680,9 @@
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            // Removed fetchBybitLiquidationsFallback calls due to persistent 404
             elements.loadingOverlay.style.display = 'none';
+
+            setTimeout(updateConnectionStatus, 5000);
 
             window.addEventListener('beforeunload', () => {
                 krakenWs.close();
