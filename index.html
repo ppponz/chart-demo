@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
-    <script src="/scripts/lightweight-charts.js"></script> <!-- Local v4.0.1 -->
+    <script src="/scripts/lightweight-charts.js"></script> <!-- Assuming local v4.0.1 -->
     <style>
         body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
@@ -40,11 +40,11 @@
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BYBIT_TRADE_URL = 'https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=BTCUSDT&limit=1000';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const HISTORY_DAYS = 2; // 2 days for candles
-            const LIQ_HISTORY_SECONDS = 24 * 60 * 60; // 1 day for liq
-            const BAR_INTERVAL = 60; // 1 minute for bars
+            const HISTORY_DAYS = 7;
+            const LIQ_HISTORY_SECONDS = 24 * 60 * 60; // 1 day
+            const BAR_INTERVAL = 300; // 5 minutes for bars
             const CVD_BUCKET = 1000; // 1 second
-            const MAX_BARS = 2880; // 2 days of 1-min bars (48h * 60 bars/h)
+            const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
             const MAX_RECONNECT_DELAY = 16000;
@@ -200,8 +200,8 @@
             async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
-                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${startTime}`;
-                    console.log(`Fetching Kraken OHLC (2 days, 1-min): ${url}`);
+                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`;
+                    console.log(`Fetching Kraken OHLC: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
@@ -218,10 +218,10 @@
                         close: parseFloat(bar[4])
                     })).filter(isValidBar);
 
-                    console.log(`Fetched ${historicalData.length} valid 1-min bars`);
+                    console.log(`Fetched ${historicalData.length} valid bars`);
                     if (historicalData.length < MAX_BARS) {
                         const lastTime = historicalData[historicalData.length - 1].time;
-                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${lastTime + BAR_INTERVAL}`;
+                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${lastTime + BAR_INTERVAL}`;
                         console.log(`Fetching additional Kraken OHLC: ${secondUrl}`);
                         const secondResponse = await fetch(secondUrl);
                         if (secondResponse.ok) {
@@ -241,7 +241,7 @@
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
-                    console.log(`Total fetched ${historicalData.length} 1-min bars`, historicalData.slice(0, 5));
+                    console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
                     console.log('Setting historical data to chart:', historicalData);
                     priceSeries.setData(historicalData);
@@ -257,6 +257,7 @@
             }
 
             async function fetchHistoricalLiquidations() {
+                // Bybit doesn't provide direct historical liquidations, so we'll mock or infer from trades
                 try {
                     const url = BYBIT_TRADE_URL;
                     console.log(`Fetching Bybit recent trades for liquidation inference: ${url}`);
@@ -268,22 +269,24 @@
                     const trades = data.result.list || [];
                     if (!trades.length) throw new Error('No trades returned');
 
+                    // Infer liquidations from large trades (simplified heuristic)
                     const cutoff = Math.floor(Date.now() / 1000) - LIQ_HISTORY_SECONDS;
                     liquidations = trades
                         .filter(trade => {
                             const ts = Math.floor(parseInt(trade.time) / 1000);
-                            return ts >= cutoff && parseFloat(trade.size) > 10; // Threshold for "liquidation-like"
+                            return ts >= cutoff && parseFloat(trade.size) > 10; // Arbitrary threshold for "liquidation-like"
                         })
                         .map(trade => ({
                             time: Math.floor(parseInt(trade.time) / 1000),
                             qty: parseFloat(trade.size),
-                            side: trade.side
+                            side: trade.side // 'Buy' or 'Sell'
                         }));
 
                     console.log(`Inferred ${liquidations.length} historical liquidations from trades`, liquidations.slice(-5));
                     updateLiquidationChart();
                 } catch (error) {
                     console.error('Bybit historical liquidation inference failed:', error);
+                    // Fallback to mock data if API fails
                     const now = Math.floor(Date.now() / 1000);
                     const cutoff = now - LIQ_HISTORY_SECONDS;
                     liquidations = [
