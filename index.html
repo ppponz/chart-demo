@@ -9,7 +9,7 @@
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
         #price-chart { height: 230px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
-        .chart-wrapper { height: 150px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 73px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -33,7 +33,7 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-            const BYBIT_OI_URL = 'https://api.bybit.com/v5/market/open-interest';
+            const BYBIT_OI_URL = 'https://api.bybit.com/v5/market/recent-open-interest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes in seconds
             const MAX_BARS = 2016; // 7 days of 5-min bars
@@ -41,7 +41,6 @@
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
             const OI_INTERVAL = '5m'; // 5-minute OI data
-            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000; // 24 hours back
 
             // DOM elements
             const elements = {
@@ -58,6 +57,8 @@
             // State
             let historicalData = [];
             let liquidations = [];
+            let liquidationDeltaData = [];
+            let liquidationDeltaCumulative = 0;
             let currentBar = null;
             let titleTimeout = null;
             let tradeCount = 0;
@@ -66,6 +67,7 @@
             let openInterestData = [];
             let cvdData = [];
             let cvdCumulative = 0;
+            let lastOiTime = Math.floor(Date.now() / 1000);
 
             // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
@@ -144,7 +146,7 @@
                 wickDownColor: '#888888'
             });
 
-            console.log('Initializing liquidation chart');
+            console.log('Initializing liquidation delta chart');
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
@@ -153,13 +155,10 @@
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const longLiqSeries = liqChart.addHistogramSeries({ 
-                color: '#ef5350', 
-                priceFormat: { type: 'volume' }
-            });
-            const shortLiqSeries = liqChart.addHistogramSeries({ 
-                color: '#26a69a', 
-                priceFormat: { type: 'volume' }
+            const liqDeltaSeries = liqChart.addLineSeries({ 
+                color: '#888888', 
+                lineWidth: 1, 
+                title: 'Liq Delta (Short + / Long -)' 
             });
 
             console.log('Initializing CVD chart');
@@ -196,8 +195,8 @@
             const initTime = Math.floor(Date.now() / 1000);
             console.log('Setting initial data');
             candleSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
-            longLiqSeries.setData([{ time: initTime, value: 0 }]);
-            shortLiqSeries.setData([{ time: initTime, value: 0 }]);
+            liquidationDeltaData = [{ time: initTime, value: 0 }];
+            liqDeltaSeries.setData(liquidationDeltaData);
             cvdData = [{ time: initTime, value: 0 }];
             cvdSeries.setData(cvdData);
             openInterestData = [{ time: initTime, value: 0 }];
@@ -269,10 +268,8 @@
 
             // Fetch Bybit historical open interest (7 days)
             async function fetchBybitOpenInterest() {
-                const endTime = Math.floor(Date.now() / 1000) * 1000;
-                const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000);
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -285,6 +282,7 @@
                         value: parseFloat(item.openInterest)
                     })).filter(isValidDataPoint).reverse();
                     console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
+                    lastOiTime = openInterestData[openInterestData.length - 1].time;
                     oiSeries.setData(openInterestData);
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
@@ -294,6 +292,7 @@
                         time: now - (10 - i) * 300,
                         value: 1000000 + i * 1000
                     }));
+                    lastOiTime = now;
                     console.log('Using mock OI data:', openInterestData);
                     oiSeries.setData(openInterestData);
                 }
@@ -301,10 +300,8 @@
 
             // Fetch live Bybit OI (REST polling)
             async function fetchBybitOpenInterestLive() {
-                const endTime = Math.floor(Date.now() / 1000) * 1000;
-                const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -320,16 +317,15 @@
                         })).filter(isValidDataPoint).reverse();
                         openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
                         if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
+                        lastOiTime = openInterestData[openInterestData.length - 1].time;
                         console.log('Processed OI data pre-setData:', openInterestData.slice(-5));
                         oiSeries.setData(openInterestData);
                         console.log('Live OI update:', newData.slice(-1));
                     } else {
                         console.warn('Empty or invalid OI response:', data);
-                        oiSeries.setData(openInterestData); // Keep chart alive
                     }
                 } catch (error) {
                     console.error('Bybit live OI fetch failed:', error);
-                    oiSeries.setData(openInterestData); // Keep chart alive
                 }
             }
             setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL);
@@ -425,9 +421,13 @@
                                 console.log('CVD data points pre-setData:', cvdData.slice(-5));
                                 cvdSeries.setData(cvdData);
                                 console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
-                                // Sync OI chart to avoid conflicts
-                                oiSeries.setData(openInterestData);
-                                console.log('OI series synced:', openInterestData.slice(-5));
+                                // Update mock OI dynamically
+                                if (openInterestData.length === 10 && openInterestData[0].value === 1000000) {
+                                    openInterestData.shift();
+                                    openInterestData.push({ time: timestamp, value: 1000000 + Math.random() * 1000 });
+                                    oiSeries.setData(openInterestData);
+                                    console.log('Updated mock OI:', openInterestData.slice(-5));
+                                }
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -444,15 +444,30 @@
                 const now = Math.floor(Date.now() / 1000);
                 const cutoff = now - 24 * 60 * 60;
                 liquidations = liquidations.filter(liq => liq.time >= cutoff && Number.isFinite(liq.time) && Number.isFinite(liq.qty));
-                const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
-                const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
-                console.log('Updating liquidation chart:', { long: longLiqs.length, short: shortLiqs.length }, longLiqs.slice(-5), shortLiqs.slice(-5));
-                if (longLiqs.length === 0 && shortLiqs.length === 0) {
+                console.log('Liquidations processed:', liquidations.slice(-5));
+
+                if (liquidations.length > 0) {
+                    liquidationDeltaCumulative = liquidations.reduce((acc, liq) => {
+                        return acc + (liq.side === 'Sell' ? liq.qty : -liq.qty); // Short liqs +, Long liqs -
+                    }, 0);
+                    liquidationDeltaData = liquidations.map(liq => {
+                        const delta = liq.side === 'Sell' ? liq.qty : -liq.qty;
+                        liquidationDeltaCumulative += delta;
+                        return { time: liq.time, value: liquidationDeltaCumulative };
+                    }).filter(isValidDataPoint);
+                } else {
                     const mockTime = now;
                     liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
+                    liquidationDeltaCumulative = 0;
+                    liquidationDeltaData = [
+                        { time: mockTime, value: -100 }, // Long liq
+                        { time: mockTime, value: -100 + 50 } // Short liq
+                    ];
+                    liquidationDeltaCumulative = -50; // Net short +50, long -100
                 }
-                longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
-                shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
+
+                console.log('Liquidation delta pre-setData:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
+                liqDeltaSeries.setData(liquidationDeltaData);
                 liqChart.timeScale().fitContent();
             }
 
