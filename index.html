@@ -164,7 +164,7 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false } // Hide price scale
+                rightPriceScale: { visible: false }
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -181,7 +181,7 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false } // Hide price scale
+                rightPriceScale: { visible: false }
             });
             const oiSeries = oiChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -198,7 +198,7 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false } // Hide price scale
+                rightPriceScale: { visible: false }
             });
             const liqSeries = liqChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -209,13 +209,16 @@
                 title: 'L'
             });
 
-            // Synchronize time scales with price chart
+            // Synchronize time scales after initialization
             const allCharts = [priceChart, cvdChart, oiChart, liqChart];
-            priceChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
-                cvdChart.timeScale().setVisibleRange(range);
-                oiChart.timeScale().setVisibleRange(range);
-                liqChart.timeScale().setVisibleRange(range);
-            });
+            function syncTimeScales() {
+                const range = priceChart.timeScale().getVisibleRange();
+                if (range) {
+                    cvdChart.timeScale().setVisibleRange(range);
+                    oiChart.timeScale().setVisibleRange(range);
+                    liqChart.timeScale().setVisibleRange(range);
+                }
+            }
 
             async function fetchInitialOpenInterest() {
                 try {
@@ -292,9 +295,17 @@
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
                     console.log('Setting historical data to chart:', historicalData);
+
+                    // Set data for all charts
                     priceSeries.setData(historicalData);
-                    await fetchInitialOpenInterest();
-                    priceChart.timeScale().scrollToRealTime();
+                    const zeroData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    cvdSeries.setData(zeroData);
+                    liqSeries.setData(zeroData);
+                    await fetchInitialOpenInterest(); // OI gets real initial value
+
+                    // Sync time scales after all data is set
+                    syncTimeScales();
+                    setTimeout(() => priceChart.timeScale().scrollToRealTime(), 100); // Delay to ensure data is applied
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
                     return true;
@@ -309,7 +320,8 @@
                 
                 if (!isCvdInitialized) {
                     currentCvdCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                    cvdCandleData = [currentCvdCandle];
+                    cvdCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    cvdCandleData.push(currentCvdCandle);
                     cvdSeries.setData(cvdCandleData);
                     isCvdInitialized = true;
                 } else if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
@@ -361,7 +373,8 @@
                 
                 if (!isLiqInitialized) {
                     currentLiqCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                    liqCandleData = [currentLiqCandle];
+                    liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    liqCandleData.push(currentLiqCandle);
                     liqSeries.setData(liqCandleData);
                     isLiqInitialized = true;
                 } else if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
@@ -507,10 +520,24 @@
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
                 priceSeries.setData(historicalData);
+                cvdSeries.setData([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
+                oiSeries.setData([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
+                liqSeries.setData([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
                 currentBar = { ...historicalData[0] };
                 await fetchInitialOpenInterest();
+                syncTimeScales();
+                setTimeout(() => priceChart.timeScale().scrollToRealTime(), 100);
                 document.title = 'BTC: $0.00';
             }
+
+            // Subscribe to time scale changes only after initialization
+            priceChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+                if (range) {
+                    cvdChart.timeScale().setVisibleRange(range);
+                    oiChart.timeScale().setVisibleRange(range);
+                    liqChart.timeScale().setVisibleRange(range);
+                }
+            });
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             elements.loadingOverlay.style.display = 'none';
