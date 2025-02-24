@@ -3,6 +3,13 @@
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
     <script src="https://unpkg.com/lightweight-charts@5.0.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        // Fallback to v4.0.1 if v5.0.2 fails
+        if (typeof LightweightCharts === 'undefined') {
+            console.log('v5.0.2 failed to load, falling back to v4.0.1');
+            document.write('<script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"><\/script>');
+        }
+    </script>
     <style>
         body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
@@ -28,7 +35,18 @@
     <div id="kraken-status">Kraken: Connecting</div>
     <div id="bybit-status">Bybit: Connecting</div>
     <script>
+        // Wait for LightweightCharts to load
         (async () => {
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts not loaded yet, waiting...');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                if (typeof LightweightCharts === 'undefined') {
+                    console.error('LightweightCharts failed to load entirely');
+                    return;
+                }
+            }
+            console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
+
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
