@@ -32,7 +32,7 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-            const BYBIT_OI_URL = 'https://api.bybit.com/v5/market/open-interest';
+            const BYBIT_KLINE_URL = 'https://api.bybit.com/v5/market/kline';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes
             const MAX_BARS = 2016; // 7 days of 5-min bars
@@ -68,7 +68,7 @@
             let lastOiTime = Math.floor(Date.now() / 1000);
             let cvdUpdateCount = 0;
             let bybitMessageCount = 0;
-            let cvdBuffer = []; // Aggregate trades
+            let cvdBuffer = [];
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const isValidDataPoint = (point) => point && typeof point === 'object' && Number.isFinite(point.time) && Number.isFinite(point.value) && !isNaN(point.time) && !isNaN(point.value) && point.value !== null;
@@ -268,20 +268,20 @@
             }
 
             async function fetchBybitOpenInterest() {
-                const endTime = Date.now();
+                const endTime = Math.floor(Date.now() / 1000) * 1000;
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
-                    console.log(`Fetching Bybit OI: ${url}`);
+                    const url = `${BYBIT_KLINE_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    console.log(`Fetching Bybit OI (kline): ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    console.log('Bybit OI response:', data);
+                    console.log('Bybit OI (kline) response:', data);
 
                     if (data.retCode !== 0) throw new Error(`Bybit OI error: ${data.retMsg}`);
                     openInterestData = data.result.list.map(item => ({
-                        time: Math.floor(parseInt(item.timestamp) / 1000),
-                        value: parseFloat(item.openInterest)
+                        time: Math.floor(parseInt(item[0]) / 1000), // Timestamp
+                        value: parseFloat(item[7]) || parseFloat(item[5]) // Volume or close as proxy
                     })).filter(isValidDataPoint).reverse();
                     console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
                     lastOiTime = openInterestData[openInterestData.length - 1].time;
@@ -309,22 +309,22 @@
             }
 
             async function fetchBybitOpenInterestLive() {
-                const endTime = Date.now();
+                const endTime = Math.floor(Date.now() / 1000) * 1000;
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
-                    console.log(`Fetching live Bybit OI: ${url}`);
+                    const url = `${BYBIT_KLINE_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    console.log(`Fetching live Bybit OI (kline): ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
                         console.warn(`OI fetch failed with status: ${response.status}`);
                         return;
                     }
                     const data = await response.json();
-                    console.log('Live Bybit OI response:', data);
+                    console.log('Live Bybit OI (kline) response:', data);
                     if (data.retCode === 0 && data.result.list && data.result.list.length > 0) {
                         const newData = data.result.list.map(item => ({
-                            time: Math.floor(parseInt(item.timestamp) / 1000),
-                            value: parseFloat(item.openInterest || 0)
+                            time: Math.floor(parseInt(item[0]) / 1000),
+                            value: parseFloat(item[7]) || parseFloat(item[5])
                         })).filter(isValidDataPoint).reverse();
                         openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
                         if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
@@ -350,11 +350,10 @@
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        console.log('Raw Kraken message:', data);
-
                         if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') {
-                            return;
+                            return; // Silent skip
                         }
+                        console.log('Raw Kraken trade:', data);
 
                         const trade = data[1][0];
                         const price = parseFloat(trade[0]);
@@ -403,7 +402,7 @@
                 const bucketTime = Math.floor(cvdBuffer[0].timestamp / (CVD_BUCKET / 1000)) * (CVD_BUCKET / 1000);
                 const bucketValue = cvdBuffer.reduce((sum, trade) => sum + trade.value, 0);
                 cvdCumulative += bucketValue;
-                cvdData = [...cvdData.filter(d => isValidDataPoint(d)), { time: bucketTime, value: cvdCumulative }];
+                cvdData.push({ time: bucketTime, value: cvdCumulative });
                 if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
                 cvdUpdateCount++;
                 if (cvdUpdateCount % 5 === 0) {
@@ -411,7 +410,8 @@
                     console.log('Live CVD update:', { time: bucketTime, value: cvdCumulative });
                 }
                 try {
-                    cvdSeries.setData(cvdData);
+                    cvdSeries.setData(cvdData.filter(isValidDataPoint));
+                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
                 } catch (e) {
                     console.error('CVD live setData failed:', e, 'Data:', cvdData);
                 }
@@ -449,9 +449,6 @@
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
                                 cvdBuffer.push({ timestamp, value: volume * side });
-                                if (cvdBuffer.length >= 10 || Date.now() - cvdBuffer[0].timestamp * 1000 >= CVD_BUCKET) {
-                                    aggregateCVD();
-                                }
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -463,6 +460,8 @@
                 'Bybit',
                 elements.bybitStatus
             );
+
+            setInterval(aggregateCVD, CVD_BUCKET);
 
             function updateLiquidationChart() {
                 const now = Math.floor(Date.now() / 1000);
