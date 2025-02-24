@@ -32,7 +32,7 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-            const BYBIT_KLINE_URL = 'https://api.bybit.com/v5/market/kline';
+            const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes
             const MAX_BARS = 2016; // 7 days of 5-min bars
@@ -40,7 +40,6 @@
             const OI_POLL_INTERVAL = 5000;
             const MAX_RECONNECT_DELAY = 16000;
             const OI_LIVE_RANGE = 24 * 60 * 60 * 1000;
-            const OI_INTERVAL = '5m';
             const CVD_BUCKET = 5000; // 5 seconds
 
             const elements = {
@@ -267,32 +266,30 @@
                 }
             }
 
-            async function fetchBybitOpenInterest() {
-                const endTime = Math.floor(Date.now() / 1000) * 1000;
-                const startTime = endTime - OI_LIVE_RANGE;
+            async function fetchBinanceOpenInterest() {
                 try {
-                    const url = `${BYBIT_KLINE_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
-                    console.log(`Fetching Bybit OI (kline): ${url}`);
+                    const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
+                    console.log(`Fetching Binance OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    console.log('Bybit OI (kline) response:', data);
+                    console.log('Binance OI response:', data);
 
-                    if (data.retCode !== 0) throw new Error(`Bybit OI error: ${data.retMsg}`);
-                    openInterestData = data.result.list.map(item => ({
-                        time: Math.floor(parseInt(item[0]) / 1000), // Timestamp
-                        value: parseFloat(item[5]) // Volume
-                    })).filter(isValidDataPoint).reverse();
-                    console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
-                    lastOiTime = openInterestData[openInterestData.length - 1].time;
+                    const now = Math.floor(Date.now() / 1000);
+                    openInterestData = [{
+                        time: now,
+                        value: parseFloat(data.openInterest)
+                    }].filter(isValidDataPoint);
+                    console.log(`Fetched ${openInterestData.length} OI points`, openInterestData);
+                    lastOiTime = now;
                     try {
                         oiSeries.setData(openInterestData);
                     } catch (e) {
-                        console.error('OI historical setData failed:', e, openInterestData);
+                        console.error('Binance OI setData failed:', e, openInterestData);
                     }
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
-                    console.error('Bybit OI fetch failed:', error);
+                    console.error('Binance OI fetch failed:', error);
                     const now = Math.floor(Date.now() / 1000);
                     openInterestData = Array.from({ length: 10 }, (_, i) => ({
                         time: now - (10 - i) * 300,
@@ -308,39 +305,34 @@
                 }
             }
 
-            async function fetchBybitOpenInterestLive() {
-                const endTime = Math.floor(Date.now() / 1000) * 1000;
-                const startTime = endTime - OI_LIVE_RANGE;
+            async function fetchBinanceOpenInterestLive() {
                 try {
-                    const url = `${BYBIT_KLINE_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
-                    console.log(`Fetching live Bybit OI (kline): ${url}`);
+                    const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
+                    console.log(`Fetching live Binance OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
                         console.warn(`OI fetch failed with status: ${response.status}`);
                         return;
                     }
                     const data = await response.json();
-                    console.log('Live Bybit OI (kline) response:', data);
-                    if (data.retCode === 0 && data.result.list && data.result.list.length > 0) {
-                        const newData = data.result.list.map(item => ({
-                            time: Math.floor(parseInt(item[0]) / 1000),
-                            value: parseFloat(item[5])
-                        })).filter(isValidDataPoint).reverse();
-                        openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
-                        if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
-                        lastOiTime = openInterestData[openInterestData.length - 1].time;
-                        console.log('Processed OI data pre-setData:', openInterestData.slice(-5));
-                        try {
-                            oiSeries.setData(openInterestData);
-                        } catch (e) {
-                            console.error('OI live setData failed:', e, openInterestData);
-                        }
-                        console.log('Live OI update:', newData.slice(-1));
-                    } else {
-                        console.warn('Empty or invalid OI response:', data);
+                    console.log('Live Binance OI response:', data);
+                    const now = Math.floor(Date.now() / 1000);
+                    const newData = [{
+                        time: now,
+                        value: parseFloat(data.openInterest)
+                    }].filter(isValidDataPoint);
+                    openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
+                    if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
+                    lastOiTime = openInterestData[openInterestData.length - 1].time;
+                    console.log('Processed OI data pre-setData:', openInterestData.slice(-5));
+                    try {
+                        oiSeries.setData(openInterestData);
+                    } catch (e) {
+                        console.error('Binance OI live setData failed:', e, openInterestData);
                     }
+                    console.log('Live OI update:', newData);
                 } catch (error) {
-                    console.error('Bybit live OI fetch failed:', error);
+                    console.error('Binance live OI fetch failed:', error);
                 }
             }
 
@@ -505,8 +497,8 @@
             console.log('Starting CVD fetch');
             await fetchHistoricalCVD();
             console.log('Starting OI fetch');
-            await fetchBybitOpenInterest();
-            setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL);
+            await fetchBinanceOpenInterest();
+            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             if (!historicalSuccess && !currentBar) {
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
