@@ -52,6 +52,7 @@
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 1000;
+            const SCALE_WIDTH = 60; // Fixed width for all right price scales
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -139,10 +140,10 @@
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
+                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true, width: SCALE_WIDTH } // Fixed width
             });
             const priceSeries = priceChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -156,9 +157,9 @@
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false }
+                rightPriceScale: { visible: false, width: SCALE_WIDTH } // Fixed width, hidden
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -173,9 +174,9 @@
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false }
+                rightPriceScale: { visible: false, width: SCALE_WIDTH } // Fixed width, hidden
             });
             const oiSeries = oiChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -190,9 +191,9 @@
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
-                rightPriceScale: { visible: false }
+                rightPriceScale: { visible: false, width: SCALE_WIDTH } // Fixed width, hidden
             });
             const liqSeries = liqChart.addCandlestickSeries({
                 upColor: '#888888',
@@ -224,7 +225,7 @@
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
-                        oiCandleData = historicalData.concat([{ time: barTime, open: value, high: value, low: value, close: value }]);
+                        oiCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 })).concat([{ time: barTime, open: value, high: value, low: value, close: value }]);
                         oiSeries.setData(oiCandleData);
                         currentOiCandle = { time: barTime, open: value, high: value, low: value, close: value };
                         elements.oiValue.textContent = `OI: ${formatValue(value)}`;
@@ -234,7 +235,7 @@
                     console.error('Initial Binance OI fetch failed:', error);
                     const now = Math.floor(Date.now() / 1000);
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                    oiCandleData = historicalData.concat([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
+                    oiCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 })).concat([{ time: barTime, open: 0, high: 0, low: 0, close: 0 }]);
                     oiSeries.setData(oiCandleData);
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     elements.oiValue.textContent = `OI: 0`;
