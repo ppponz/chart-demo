@@ -37,7 +37,7 @@
             const BAR_INTERVAL = 300; // 5 minutes
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
-            const OI_POLL_INTERVAL = 5000;
+            const OI_POLL_INTERVAL = 1000; // 1s for faster updates
             const MAX_RECONNECT_DELAY = 16000;
 
             const elements = {
@@ -51,7 +51,7 @@
             };
 
             let historicalData = [];
-            let priceData = [];
+            let currentBar = null;
             let liquidations = [];
             let liquidationDeltaData = [];
             let liquidationDeltaCumulative = 0;
@@ -123,10 +123,12 @@
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const priceSeries = priceChart.addLineSeries({
-                color: '#888888',
-                lineWidth: 1,
-                title: 'Price'
+            const priceSeries = priceChart.addCandlestickSeries({
+                upColor: '#888888',
+                downColor: '#888888',
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888'
             });
 
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
@@ -173,8 +175,7 @@
 
             const initTime = Math.floor(Date.now() / 1000);
             console.log('Setting initial data');
-            priceData = [{ time: initTime, value: 0 }];
-            priceSeries.setData(priceData);
+            priceSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
             cvdData = [{ time: initTime, value: 0 }];
             cvdSeries.setData(cvdData);
             openInterestData = [{ time: initTime, value: 0 }];
@@ -232,8 +233,7 @@
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
-                    priceData = historicalData.map(bar => ({ time: bar.time, value: bar.close }));
-                    priceSeries.setData(priceData);
+                    priceSeries.setData(historicalData);
                     priceChart.timeScale().scrollToRealTime();
                     return true;
                 } catch (error) {
@@ -293,20 +293,19 @@
                     const data = await response.json();
                     console.log('Live Binance OI response:', data);
                     const now = Math.floor(Date.now() / 1000);
-                    const newData = [{
-                        time: now,
-                        value: parseFloat(data.openInterest)
-                    }].filter(isValidDataPoint);
-                    openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
-                    if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
-                    lastOiTime = openInterestData[openInterestData.length - 1].time;
-                    console.log('Processed OI data pre-setData:', openInterestData.slice(-5));
-                    try {
-                        oiSeries.setData(openInterestData);
-                    } catch (e) {
-                        console.error('Binance OI live setData failed:', e, openInterestData);
+                    const newPoint = { time: now, value: parseFloat(data.openInterest) };
+                    if (isValidDataPoint(newPoint)) {
+                        openInterestData.push(newPoint);
+                        if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
+                        lastOiTime = now;
+                        console.log('Live OI update:', newPoint);
+                        try {
+                            oiSeries.update(newPoint);
+                            oiChart.timeScale().scrollToRealTime();
+                        } catch (e) {
+                            console.error('Binance OI live update failed:', e, 'Data:', openInterestData);
+                        }
                     }
-                    console.log('Live OI update:', newData);
                 } catch (error) {
                     console.error('Binance live OI fetch failed:', error);
                 }
@@ -331,19 +330,31 @@
                             return;
                         }
 
-                        const newPoint = { time: timestamp, value: price };
-                        priceData.push(newPoint);
-                        if (priceData.length > MAX_BARS) priceData = priceData.slice(-MAX_BARS);
-                        console.log('Live price update:', newPoint);
+                        const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+
+                        if (!currentBar || currentBar.time !== barTime) {
+                            if (currentBar && isValidBar(currentBar)) {
+                                console.log('Closing previous bar:', currentBar);
+                                priceSeries.update(currentBar);
+                            }
+                            currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                        } else {
+                            currentBar.high = Math.max(currentBar.high, price);
+                            currentBar.low = Math.min(currentBar.low, price);
+                            currentBar.close = price;
+                        }
+
+                        console.log('Live trade update:', { price, bar: currentBar });
                         tradeCount++;
                         logTradeCount();
-                        try {
-                            priceSeries.update(newPoint);
-                            lastBtcPrice = price;
-                            priceChart.timeScale().scrollToRealTime();
+                        if (isValidBar(currentBar)) {
+                            priceSeries.update(currentBar);
+                            lastBtcPrice = currentBar.close;
+                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
+                            if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
+                                priceChart.timeScale().scrollToRealTime();
+                            }
                             debounceTitle(price);
-                        } catch (e) {
-                            console.error('Price live update failed:', e, 'Data:', priceData);
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
@@ -422,11 +433,18 @@
                     liquidationDeltaCumulative = liquidations.reduce((acc, liq) => {
                         return acc + (liq.side === 'Sell' ? liq.qty : -liq.qty);
                     }, 0);
-                    liquidationDeltaData = liquidations.map(liq => {
-                        const delta = liq.side === 'Sell' ? liq.qty : -liq.qty;
-                        liquidationDeltaCumulative += delta;
-                        return { time: liq.time, value: liquidationDeltaCumulative };
-                    }).filter(isValidDataPoint);
+                    liquidationDeltaData = liquidations.map(liq => ({
+                        time: liq.time,
+                        value: liq.side === 'Sell' ? liquidationDeltaCumulative += liq.qty : liquidationDeltaCumulative -= liq.qty
+                    })).filter(isValidDataPoint);
+                    console.log('Liquidation delta pre-update:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
+                    try {
+                        const latestLiq = liquidationDeltaData[liquidationDeltaData.length - 1];
+                        liqDeltaSeries.update(latestLiq);
+                        liqChart.timeScale().scrollToRealTime();
+                    } catch (e) {
+                        console.error('Liq Delta update failed:', e, 'Data:', liquidationDeltaData);
+                    }
                 } else {
                     const mockTime = now;
                     liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
@@ -436,15 +454,14 @@
                         { time: mockTime, value: -100 + 50 }
                     ];
                     liquidationDeltaCumulative = -50;
+                    console.log('Mock liquidation delta pre-setData:', liquidationDeltaData, 'Cumulative:', liquidationDeltaCumulative);
+                    try {
+                        liqDeltaSeries.setData(liquidationDeltaData);
+                        liqChart.timeScale().fitContent();
+                    } catch (e) {
+                        console.error('Liq Delta setData failed:', e, liquidationDeltaData);
+                    }
                 }
-
-                console.log('Liquidation delta pre-setData:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
-                try {
-                    liqDeltaSeries.setData(liquidationDeltaData);
-                } catch (e) {
-                    console.error('Liq Delta setData failed:', e, liquidationDeltaData);
-                }
-                liqChart.timeScale().fitContent();
             }
 
             console.log('Starting historical data fetch');
@@ -452,10 +469,11 @@
             console.log('Starting OI fetch');
             await fetchBinanceOpenInterest();
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            if (!historicalSuccess) {
+            if (!historicalSuccess || !currentBar) {
                 const now = Math.floor(Date.now() / 1000);
-                priceData = [{ time: now, value: 0 }];
-                priceSeries.setData(priceData);
+                const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
+                currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
+                priceSeries.setData([currentBar]);
                 document.title = 'BTC: $0.00';
             }
             elements.loadingOverlay.style.display = 'none';
