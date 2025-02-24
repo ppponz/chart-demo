@@ -40,7 +40,6 @@
             const TITLE_DELAY = 1000; // 1s debounce for tab title
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
-            const OI_INTERVAL = '5m'; // 5-minute OI data
             const OI_LIVE_RANGE = 24 * 60 * 60 * 1000; // 24 hours back
 
             // DOM elements
@@ -69,6 +68,7 @@
             let cvdData = [];
             let cvdCumulative = 0;
             let lastOiTime = Math.floor(Date.now() / 1000);
+            let cvdUpdateCount = 0;
 
             // Utility functions
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
@@ -151,7 +151,7 @@
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -166,7 +166,7 @@
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -181,7 +181,7 @@
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 8 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -263,14 +263,14 @@
                 }
             }
 
-            // Mock historical CVD (if Bybit trade history unavailable)
+            // Mock historical CVD
             async function fetchHistoricalCVD() {
                 try {
                     const now = Math.floor(Date.now() / 1000);
                     const startTime = now - (HISTORY_DAYS * 24 * 60 * 60);
                     cvdData = Array.from({ length: 100 }, (_, i) => ({
                         time: startTime + (i * BAR_INTERVAL),
-                        value: Math.sin(i / 10) * 1000 // Mock sine wave
+                        value: -500 + (i * 5) // Mock -500 to 0 range
                     }));
                     cvdCumulative = cvdData[cvdData.length - 1].value;
                     console.log(`Mocked ${cvdData.length} CVD points`, cvdData.slice(0, 5));
@@ -290,7 +290,7 @@
                 const endTime = Date.now();
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -332,7 +332,7 @@
                 const endTime = Date.now();
                 const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -374,8 +374,7 @@
                         console.log('Raw Kraken message:', data);
 
                         if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') {
-                            console.log('Skipping non-trade message');
-                            return;
+                            return; // Silent skip
                         }
 
                         const trade = data[1][0];
@@ -451,13 +450,16 @@
                                 cvdCumulative += volume * side;
                                 cvdData = [...cvdData.filter(d => isValidDataPoint(d)), { time: timestamp, value: cvdCumulative }];
                                 if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
-                                console.log('CVD data points pre-setData:', cvdData.slice(-5));
+                                cvdUpdateCount++;
+                                if (cvdUpdateCount % 5 === 0) {
+                                    console.log('CVD data points pre-setData:', cvdData.slice(-5));
+                                    console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
+                                }
                                 try {
                                     cvdSeries.setData(cvdData);
                                 } catch (e) {
                                     console.error('CVD live setData failed:', e, cvdData);
                                 }
-                                console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
