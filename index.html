@@ -19,7 +19,7 @@
 <body>
     <div id="loading-overlay"><div id="loading-text">Loading historical data...</div></div>
     <div id="container">
-        <div id="header"><h1>BTC-USD Price, CVD, OI, and Liquidations (5-min Candles)</h1></div>
+        <div id="header"><h1>BTC-USD Price, C, O, and L (5-min Candles)</h1></div>
         <div id="price-chart"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
@@ -38,6 +38,7 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
+            const BINANCE_OI_HIST_URL = 'https://fapi.binance.com/fapi/v1/openInterestHist';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes for bars
@@ -45,6 +46,7 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
             const MAX_RECONNECT_DELAY = 16000;
+            const LIQ_SENSITIVITY = 10; // Multiplier for liquidation sensitivity
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -53,7 +55,7 @@
                 oiChart: document.getElementById('oi-chart'),
                 loadingOverlay: document.getElementById('loading-overlay'),
                 krakenStatus: document.getElementById('kraken-status'),
-                bybitStatus: document.getElementById('bybit-status')
+                bybitStatus: document.getElementById('bybitStatus')
             };
 
             let historicalData = [];
@@ -95,7 +97,7 @@
                 ws.onopen = () => {
                     console.log(`${label} WebSocket connected`);
                     statusElement.textContent = `${label}: Connected`;
-                    statusElement.style.color = '#00E676';
+                    statusElement.style.color = '#888888';
                     onOpen(ws);
                     reconnectDelay = 2000;
                 };
@@ -147,12 +149,12 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
-                upColor: '#00E676',
-                downColor: '#ef5350',
+                upColor: '#888888',
+                downColor: '#888888',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
-                title: 'CVD'
+                title: 'C'
             });
 
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
@@ -164,12 +166,12 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const oiSeries = oiChart.addCandlestickSeries({
-                upColor: '#00E676',
-                downColor: '#ef5350',
+                upColor: '#888888',
+                downColor: '#888888',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
-                title: 'OI'
+                title: 'O'
             });
 
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
@@ -181,28 +183,13 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const liqSeries = liqChart.addCandlestickSeries({
-                upColor: '#00E676',
-                downColor: '#ef5350',
+                upColor: '#888888',
+                downColor: '#888888',
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888',
-                title: 'LIQ'
+                title: 'L'
             });
-
-            const initTime = Math.floor(Date.now() / 1000);
-            const initBarTime = Math.floor(initTime / BAR_INTERVAL) * BAR_INTERVAL;
-            console.log('Setting initial data');
-            priceSeries.setData([{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }]);
-            cvdCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
-            cvdSeries.setData(cvdCandleData);
-            oiCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
-            oiSeries.setData(oiCandleData);
-            liqCandleData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
-            liqSeries.setData(liqCandleData);
-            priceChart.timeScale().scrollToRealTime();
-            cvdChart.timeScale().scrollToRealTime();
-            oiChart.timeScale().scrollToRealTime();
-            liqChart.timeScale().scrollToRealTime();
 
             async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
@@ -252,7 +239,6 @@
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
                     console.log('Setting historical data to chart:', historicalData);
                     priceSeries.setData(historicalData);
-                    console.log('Historical data set, scrolling to real-time');
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
@@ -263,47 +249,81 @@
                 }
             }
 
-            async function fetchBinanceOpenInterest() {
+            async function fetchHistoricalOpenInterest() {
                 try {
-                    const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
-                    console.log(`Fetching Binance OI: ${url}`);
+                    const now = Math.floor(Date.now() / 1000);
+                    const startTime = now - BAR_INTERVAL * 2;
+                    const url = `${BINANCE_OI_HIST_URL}?symbol=BTCUSDT&period=5m&limit=2&startTime=${startTime * 1000}`;
+                    console.log(`Fetching Binance OI History: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    console.log('Binance OI response:', data);
+                    console.log('Binance OI Historical response:', data);
 
-                    const now = Math.floor(Date.now() / 1000);
-                    const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                    oiCandleData = [{
-                        time: barTime,
-                        open: parseFloat(data.openInterest),
-                        high: parseFloat(data.openInterest),
-                        low: parseFloat(data.openInterest),
-                        close: parseFloat(data.openInterest)
-                    }].filter(isValidBar);
-                    console.log(`Fetched initial OI candle`, oiCandleData);
-                    lastOiTime = now;
-                    try {
+                    oiCandleData = data.map(item => {
+                        const time = Math.floor(parseInt(item.timestamp) / 1000 / BAR_INTERVAL) * BAR_INTERVAL;
+                        const value = parseFloat(item.openInterest);
+                        return {
+                            time: time,
+                            open: value,
+                            high: value,
+                            low: value,
+                            close: value
+                        };
+                    }).filter(isValidBar);
+
+                    console.log(`Fetched ${oiCandleData.length} OI candles`, oiCandleData);
+                    if (oiCandleData.length > 0) {
                         oiSeries.setData(oiCandleData);
-                        currentOiCandle = { ...oiCandleData[0] };
-                    } catch (e) {
-                        console.error('Binance OI setData failed:', e, oiCandleData);
+                        currentOiCandle = { ...oiCandleData[oiCandleData.length - 1] };
+                        lastOiTime = oiCandleData[oiCandleData.length - 1].time;
                     }
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
-                    console.error('Binance OI fetch failed:', error);
+                    console.error('Binance OI historical fetch failed:', error);
                     const now = Math.floor(Date.now() / 1000);
-                    const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                    oiCandleData = [{ time: barTime, open: 1000000, high: 1000000, low: 1000000, close: 1000000 }];
-                    lastOiTime = now;
-                    console.log('Using mock OI data:', oiCandleData);
-                    try {
-                        oiSeries.setData(oiCandleData);
-                        currentOiCandle = { ...oiCandleData[0] };
-                    } catch (e) {
-                        console.error('OI mock setData failed:', e, oiCandleData);
-                    }
+                    const prevBarTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL - BAR_INTERVAL;
+                    oiCandleData = [{
+                        time: prevBarTime,
+                        open: 1000000,
+                        high: 1000010,
+                        low: 999990,
+                        close: 1000005
+                    }];
+                    oiSeries.setData(oiCandleData);
+                    currentOiCandle = { ...oiCandleData[0] };
+                    lastOiTime = prevBarTime;
                 }
+            }
+
+            function initializeHistoricalCvdAndLiq() {
+                const now = Math.floor(Date.now() / 1000);
+                const prevBarTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL - BAR_INTERVAL;
+
+                cvdCandleData = [{
+                    time: prevBarTime,
+                    open: 0,
+                    high: 1000,
+                    low: -500,
+                    close: 800
+                }];
+                cvdCumulative = cvdCandleData[0].close;
+                cvdSeries.setData(cvdCandleData);
+                currentCvdCandle = { ...cvdCandleData[0] };
+
+                liqCandleData = [{
+                    time: prevBarTime,
+                    open: 0,
+                    high: 200 * LIQ_SENSITIVITY,
+                    low: -150 * LIQ_SENSITIVITY,
+                    close: 50 * LIQ_SENSITIVITY
+                }];
+                liquidationDeltaCumulative = liqCandleData[0].close;
+                liqSeries.setData(liqCandleData);
+                currentLiqCandle = { ...liqCandleData[0] };
+
+                cvdChart.timeScale().scrollToRealTime();
+                liqChart.timeScale().scrollToRealTime();
             }
 
             function updateCvdCandle(timestamp, value) {
@@ -353,6 +373,8 @@
 
             function updateLiqCandle(timestamp, value, side) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+                const adjustedValue = value * LIQ_SENSITIVITY;
+                const delta = side === 'Sell' ? adjustedValue : -adjustedValue;
                 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
@@ -360,15 +382,22 @@
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         liqSeries.setData(liqCandleData);
                     }
-                    currentLiqCandle = { time: barTime, open: liquidationDeltaCumulative, high: liquidationDeltaCumulative, low: liquidationDeltaCumulative, close: liquidationDeltaCumulative };
+                    currentLiqCandle = { 
+                        time: barTime, 
+                        open: liquidationDeltaCumulative, 
+                        high: liquidationDeltaCumulative, 
+                        low: liquidationDeltaCumulative, 
+                        close: liquidationDeltaCumulative 
+                    };
                 }
                 
-                liquidationDeltaCumulative += (side === 'Sell' ? value : -value);
+                liquidationDeltaCumulative += delta;
                 currentLiqCandle.high = Math.max(currentLiqCandle.high, liquidationDeltaCumulative);
                 currentLiqCandle.low = Math.min(currentLiqCandle.low, liquidationDeltaCumulative);
                 currentLiqCandle.close = liquidationDeltaCumulative;
                 
                 if (isValidBar(currentLiqCandle)) {
+                    console.log('Updating liquidation candle:', currentLiqCandle);
                     liqSeries.update(currentLiqCandle);
                     liqChart.timeScale().scrollToRealTime();
                 }
@@ -402,7 +431,7 @@
                     try {
                         const data = JSON.parse(event.data);
                         if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') {
-                            return; // Silent skip
+                            return;
                         }
                         console.log('Raw Kraken trade:', data);
 
@@ -454,7 +483,7 @@
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (bybitMessageCount < 5) {
+                        if (bybitMessageCount < 10) { // Increased logging to catch more messages
                             console.log('Raw Bybit message:', data);
                             bybitMessageCount++;
                         }
@@ -464,6 +493,7 @@
                             const timestamp = parseInt(time) / 1000;
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
+                                console.log('Processing liquidation:', { timestamp, liqValue, side });
                                 liquidations.push({ time: Math.floor(timestamp), qty: liqValue, side });
                                 updateLiqCandle(timestamp, liqValue, side);
                             } else {
@@ -482,7 +512,7 @@
                                 console.warn('Invalid trade data:', trade);
                             }
                         }
-                    } catch (error) {
+                    } Bybitcatch (error) {
                         console.error('Bybit WebSocket processing error:', error);
                     }
                 },
@@ -490,19 +520,25 @@
                 elements.bybitStatus
             );
 
+            const initTime = Math.floor(Date.now() / 1000);
+            const initBarTime = Math.floor(initTime / BAR_INTERVAL) * BAR_INTERVAL;
+
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
-            console.log('Starting OI fetch');
-            await fetchBinanceOpenInterest();
-            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             if (!historicalSuccess) {
-                const now = Math.floor(Date.now() / 1000);
-                const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                console.log('Fallback: Setting initial bar:', currentBar);
-                priceSeries.setData([currentBar]);
+                historicalData = [{ time: initBarTime, open: 0, high: 0, low: 0, close: 0 }];
+                priceSeries.setData(historicalData);
+                currentBar = { ...historicalData[0] };
                 document.title = 'BTC: $0.00';
             }
+
+            console.log('Starting OI historical fetch');
+            await fetchHistoricalOpenInterest();
+            
+            console.log('Initializing CVD and Liquidation historical data');
+            initializeHistoricalCvdAndLiq();
+
+            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             elements.loadingOverlay.style.display = 'none';
 
             window.addEventListener('resize', () => {
