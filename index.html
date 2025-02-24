@@ -45,6 +45,7 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
             const MAX_RECONNECT_DELAY = 16000;
+            const LIQ_SENSITIVITY = 1000; // Sensitivity factor for liquidation data
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -140,7 +141,7 @@
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: false }, // Time scale hidden
+                timeScale: { visible: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
@@ -157,7 +158,7 @@
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: false }, // Time scale hidden
+                timeScale: { visible: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const oiSeries = oiChart.addCandlestickSeries({
@@ -174,7 +175,7 @@
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: false }, // Time scale hidden
+                timeScale: { visible: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const liqSeries = liqChart.addCandlestickSeries({
@@ -302,7 +303,8 @@
 
             function updateLiqCandle(timestamp, value, side) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
-                const delta = (side === 'Sell' ? value : -value);
+                const adjustedValue = value * LIQ_SENSITIVITY; // Amplify liquidation value
+                const delta = (side === 'Sell' ? adjustedValue : -adjustedValue); // Delta per event
                 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
@@ -314,13 +316,13 @@
                     currentLiqCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                 }
                 
-                liquidationDelta += delta;
+                liquidationDelta += delta; // Accumulate delta within the candle
                 currentLiqCandle.high = Math.max(currentLiqCandle.high, liquidationDelta);
                 currentLiqCandle.low = Math.min(currentLiqCandle.low, liquidationDelta);
                 currentLiqCandle.close = liquidationDelta;
                 
                 if (isValidBar(currentLiqCandle)) {
-                    console.log('Updating liquidation candle:', currentLiqCandle);
+                    console.log('Updating liquidation candle:', { time: barTime, open: 0, high: currentLiqCandle.high, low: currentLiqCandle.low, close: liquidationDelta });
                     liqSeries.update(currentLiqCandle);
                 }
             }
