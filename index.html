@@ -20,16 +20,24 @@
             flex-direction: column; 
             gap: 10px; 
         }
-        #header { 
+        #metrics-box { 
             text-align: center; 
             padding: 10px; 
             background: #161b22; 
             border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
         }
-        #header h1 { 
-            margin: 0; 
-            font-size: 1.2em; 
-            color: #888888; 
+        #metrics-box table { 
+            width: 100%; 
+            border-collapse: collapse; 
+        }
+        #metrics-box th, #metrics-box td { 
+            padding: 8px; 
+            font-size: 1em; 
+            color: #D3D3D3; 
+        }
+        #metrics-box th { 
+            background: #1c2526; 
         }
         #price-chart { 
             height: 300px; 
@@ -81,12 +89,31 @@
             border-radius: 4px; 
             font-size: 0.9em; 
         }
+        .negative { color: #ff5555; } /* Red for negative */
+        .positive { color: #00ffff; } /* Aqua for positive */
     </style>
 </head>
 <body>
     <div id="loading-overlay"><div id="loading-text">Loading historical price data...</div></div>
     <div id="container">
-        <div id="header"><h1>BTC-USD Price, C, O, and L (5-min Candles)</h1></div>
+        <div id="metrics-box">
+            <table>
+                <thead>
+                    <tr>
+                        <th>CVD</th>
+                        <th>OI</th>
+                        <th>LIQ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td id="cvd-data">0</td>
+                        <td id="oi-data">0</td>
+                        <td id="liq-data">0</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
         <div id="price-chart"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
@@ -129,7 +156,10 @@
                 bybitStatus: document.getElementById('bybit-status'),
                 cvdValue: document.getElementById('cvd-value'),
                 oiValue: document.getElementById('oi-value'),
-                liqValue: document.getElementById('liq-value')
+                liqValue: document.getElementById('liq-value'),
+                cvdData: document.getElementById('cvd-data'),
+                oiData: document.getElementById('oi-data'),
+                liqData: document.getElementById('liq-data')
             };
 
             let historicalData = [];
@@ -170,6 +200,12 @@
                 if (absValue >= 1000000) return (value / 1000000).toFixed(2) + 'm';
                 if (absValue >= 1000) return (value / 1000).toFixed(2) + 'k';
                 return value.toFixed(2);
+            };
+
+            const updateColor = (element, value) => {
+                element.classList.remove('negative', 'positive');
+                if (value < 0) element.classList.add('negative');
+                else if (value > 0) element.classList.add('positive');
             };
 
             function createWebSocket(url, onOpen, onMessage, label, statusElement) {
@@ -299,7 +335,8 @@
                         oiSeries.setData(oiCandleData);
                         currentOiCandle = { ...oiCandleData[0] };
                         elements.oiValue.textContent = `OI: ${formatValue(oiCumulative)}`;
-                        oiSeries.setMarkers([{ time: barTime, position: 'aboveBar', color: '#D3D3D3', shape: 'arrowDown', text: formatValue(oiCumulative) }]);
+                        elements.oiData.textContent = formatValue(oiCumulative);
+                        updateColor(elements.oiData, oiCumulative);
                         console.log('Initialized OI with:', oiCandleData[0]);
                     }
                 } catch (error) {
@@ -310,7 +347,8 @@
                     oiSeries.setData(oiCandleData);
                     currentOiCandle = { ...oiCandleData[0] };
                     elements.oiValue.textContent = `OI: 0`;
-                    oiSeries.setMarkers([{ time: barTime, position: 'aboveBar', color: '#D3D3D3', shape: 'arrowDown', text: '0' }]);
+                    elements.oiData.textContent = '0';
+                    updateColor(elements.oiData, 0);
                 }
             }
 
@@ -366,7 +404,6 @@
                     liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                     liqSeries.setData(liqCandleData);
                     currentLiqCandle = { ...liqCandleData[liqCandleData.length - 1] };
-                    liqSeries.setMarkers([{ time: currentLiqCandle.time, position: 'aboveBar', color: '#D3D3D3', shape: 'arrowDown', text: '0' }]);
                     isLiqInitialized = true;
                     await fetchInitialOpenInterest();
                     priceChart.timeScale().scrollToRealTime();
@@ -404,9 +441,9 @@
                 if (isValidBar(currentCvdCandle)) {
                     cvdSeries.update(currentCvdCandle);
                     elements.cvdValue.textContent = `CVD: ${formatValue(cvdCumulative)}`;
-                    const color = cvdCumulative < 0 ? '#ff5555' : cvdCumulative > 0 ? '#00ffff' : '#D3D3D3';
-                    cvdSeries.setMarkers([{ time: barTime, position: 'aboveBar', color: color, shape: 'arrowDown', text: formatValue(cvdCumulative) }]);
-                    console.log('Updated CVD marker:', cvdCumulative);
+                    elements.cvdData.textContent = formatValue(cvdCumulative);
+                    updateColor(elements.cvdData, cvdCumulative);
+                    console.log('Updated CVD in metrics box:', cvdCumulative);
                 }
             }
 
@@ -435,9 +472,9 @@
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
                     elements.oiValue.textContent = `OI: ${formatValue(oiCumulative)}`;
-                    const color = oiCumulative < 0 ? '#ff5555' : oiCumulative > 0 ? '#00ffff' : '#D3D3D3';
-                    oiSeries.setMarkers([{ time: barTime, position: 'aboveBar', color: color, shape: 'arrowDown', text: formatValue(oiCumulative) }]);
-                    console.log('Updated OI marker:', oiCumulative);
+                    elements.oiData.textContent = formatValue(oiCumulative);
+                    updateColor(elements.oiData, oiCumulative);
+                    console.log('Updated OI in metrics box:', oiCumulative);
                 }
             }
 
@@ -465,9 +502,9 @@
                     liqSeries.setData(liqCandleData);
                     liqSeries.update(currentLiqCandle);
                     elements.liqValue.textContent = `LIQ: ${formatValue(liquidationDelta)}`;
-                    const color = liquidationDelta < 0 ? '#ff5555' : liquidationDelta > 0 ? '#00ffff' : '#D3D3D3';
-                    liqSeries.setMarkers([{ time: barTime, position: 'aboveBar', color: color, shape: 'arrowDown', text: formatValue(liquidationDelta) }]);
-                    console.log('Updated LIQ marker:', liquidationDelta);
+                    elements.liqData.textContent = formatValue(liquidationDelta);
+                    updateColor(elements.liqData, liquidationDelta);
+                    console.log('Updated LIQ in metrics box:', liquidationDelta);
                 }
             }
 
@@ -573,4 +610,53 @@
                             const volume = parseFloat(trade.v);
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
+                            if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
+                                console.log('Processing trade for CVD:', { timestamp, volume, side });
+                                updateCvdCandle(timestamp, volume * side);
+                            } else {
+                                console.warn('Invalid trade data:', trade);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Bybit WebSocket processing error:', error);
+                    }
+                },
+                'Bybit',
+                elements.bybitStatus
+            );
+
+            console.log('Starting historical price data fetch');
+            const historicalSuccess = await fetchHistoricalPriceData();
+            if (!historicalSuccess) {
+                const now = Math.floor(Date.now() / 1000);
+                const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
+                historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                priceSeries.setData(historicalData);
+                liqCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                liqSeries.setData(liqCandleData);
+                currentLiqCandle = { ...liqCandleData[0] };
+                isLiqInitialized = true;
+                currentBar = { ...historicalData[0] };
+                await fetchInitialOpenInterest();
+                document.title = 'BTC: $0.00';
+            }
+
+            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
+            elements.loadingOverlay.style.display = 'none';
+
+            window.addEventListener('resize', () => {
+                priceChart.resize(elements.priceChart.offsetWidth, elements.priceChart.offsetHeight);
+                cvdChart.resize(elements.cvdChart.offsetWidth, elements.cvdChart.offsetHeight);
+                oiChart.resize(elements.oiChart.offsetWidth, elements.oiChart.offsetHeight);
+                liqChart.resize(elements.liqChart.offsetWidth, elements.liqChart.offsetHeight);
+            });
+
+            window.addEventListener('unload', () => {
+                krakenWs.close();
+                bybitWs.close();
+            });
+        })();
+    </script>
+</body>
+</html>
                            
