@@ -39,7 +39,7 @@
             const TITLE_DELAY = 1000; // 1s debounce for tab title
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
-            const OI_INTERVAL = '5m'; // 5-minute OI data
+            const OI_INTERVAL = '1m'; // 1-minute OI data for finer granularity
 
             // DOM elements
             const elements = {
@@ -231,6 +231,7 @@
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
+                    console.log('Bybit OI response:', data);
 
                     if (data.retCode !== 0) throw new Error(`Bybit OI error: ${data.retMsg}`);
                     openInterestData = data.result.list.map(item => ({
@@ -255,16 +256,21 @@
                     const response = await fetch(url);
                     if (!response.ok) return;
                     const data = await response.json();
-                    console.log('Live OI response:', data);
+                    console.log('Live Bybit OI response:', data);
                     if (data.retCode === 0 && data.result.list && data.result.list.length > 0) {
                         const timestamp = Math.floor(Date.now() / 1000);
                         const latestOi = parseFloat(data.result.list[0].openInterest || 0);
                         if (Number.isFinite(latestOi)) {
                             openInterestData.push({ time: timestamp, value: latestOi });
                             if (openInterestData.length > MAX_BARS) openInterestData.shift();
+                            console.log('Processed OI data:', openInterestData.slice(-5));
                             oiSeries.setData(openInterestData);
                             console.log('Live OI update:', { time: timestamp, value: latestOi });
+                        } else {
+                            console.warn('Invalid OI value:', data.result.list[0]);
                         }
+                    } else {
+                        console.warn('Empty or invalid OI response:', data);
                     }
                 } catch (error) {
                     console.error('Bybit live OI fetch failed:', error);
@@ -393,7 +399,8 @@
                                 cvd += volume * side;
                                 cvdData.push({ time: timestamp, value: cvd });
                                 if (cvdData.length > MAX_BARS) cvdData.shift();
-                                cvdSeries.setData(cvdData);
+                                console.log('CVD data points:', cvdData.slice(-5));
+                                cvdSeries.setData(cvdData.filter(isValidDataPoint));
                                 console.log('Live CVD update:', { time: timestamp, value: cvd });
                             } else {
                                 console.warn('Invalid trade data:', trade);
@@ -413,7 +420,7 @@
                 liquidations = liquidations.filter(liq => liq.time >= cutoff);
                 const longLiqs = liquidations.filter(liq => liq.side === 'Buy');
                 const shortLiqs = liquidations.filter(liq => liq.side === 'Sell');
-                console.log('Updating liquidation chart:', { long: longLiqs.length, short: shortLiqs.length });
+                console.log('Updating liquidation chart:', { long: longLiqs.length, short: shortLiqs.length }, longLiqs.slice(-5), shortLiqs.slice(-5));
                 longLiqSeries.setData(longLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#ff0000' : '#ef5350' })));
                 shortLiqSeries.setData(shortLiqs.map(liq => ({ time: liq.time, value: liq.qty, color: liq.qty > 10 ? '#00ff00' : '#26a69a' })));
                 liqChart.timeScale().fitContent();
