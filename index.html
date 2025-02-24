@@ -139,7 +139,7 @@
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -156,7 +156,7 @@
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -173,7 +173,7 @@
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -190,7 +190,7 @@
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -462,7 +462,7 @@
                         console.log('Raw Bybit message:', data);
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
-                            const { side, qty, time, price, orderId } = data.data; // Adjusted for Bybit v5 liquidation format
+                            const { side, qty, time, price, orderId } = data.data;
                             const timestamp = Math.floor(parseInt(time) / 1000);
                             const liqValue = parseFloat(qty || 0);
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
