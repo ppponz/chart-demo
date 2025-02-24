@@ -15,6 +15,12 @@
         #status-container { position: fixed; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 5px; }
         .status-box { padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
         .metric-value { padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
+        #data-box { max-width: 1400px; margin: 10px auto; padding: 10px; background: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); text-align: center; }
+        #data-box table { width: 100%; border-collapse: collapse; }
+        #data-box th, #data-box td { padding: 8px; font-size: 1em; color: #D3D3D3; }
+        #data-box th { background: #1c2526; }
+        .negative { color: #ff5555; } /* Red for negative */
+        .positive { color: #00ffff; } /* Aqua for positive */
     </style>
 </head>
 <body>
@@ -25,6 +31,24 @@
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
+    </div>
+    <div id="data-box">
+        <table>
+            <thead>
+                <tr>
+                    <th>CVD</th>
+                    <th>OI</th>
+                    <th>LIQ</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="cvd-data">0</td>
+                    <td id="oi-data">0</td>
+                    <td id="liq-data">0</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
     <div id="status-container">
         <div id="kraken-status" class="status-box">Kraken: Connecting</div>
@@ -63,7 +87,10 @@
                 bybitStatus: document.getElementById('bybit-status'),
                 cvdValue: document.getElementById('cvd-value'),
                 oiValue: document.getElementById('oi-value'),
-                liqValue: document.getElementById('liq-value')
+                liqValue: document.getElementById('liq-value'),
+                cvdData: document.getElementById('cvd-data'),
+                oiData: document.getElementById('oi-data'),
+                liqData: document.getElementById('liq-data')
             };
 
             let historicalData = [];
@@ -79,6 +106,8 @@
             let cvdCandleData = [];
             let currentCvdCandle = null;
             let cvdCumulative = 0;
+            let oiCumulative = 0; // New cumulative OI
+            let lastOiValue = null; // Track last OI for delta
             let liquidationDelta = 0;
             let isCvdInitialized = false;
             let isLiqInitialized = false;
@@ -102,6 +131,12 @@
                 if (absValue >= 1000000) return (value / 1000000).toFixed(2) + 'm';
                 if (absValue >= 1000) return (value / 1000).toFixed(2) + 'k';
                 return value.toFixed(2);
+            };
+
+            const updateColor = (element, value) => {
+                element.classList.remove('negative', 'positive');
+                if (value < 0) element.classList.add('negative');
+                else if (value > 0) element.classList.add('positive');
             };
 
             function createWebSocket(url, onOpen, onMessage, label, statusElement) {
@@ -226,10 +261,13 @@
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
-                        oiCandleData = [{ time: barTime, open: value, high: value, low: value, close: value }];
+                        lastOiValue = value; // Store initial OI for delta calc
+                        oiCandleData = [{ time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative }];
                         oiSeries.setData(oiCandleData);
                         currentOiCandle = { ...oiCandleData[0] };
-                        elements.oiValue.textContent = `OI: ${formatValue(value)}`;
+                        elements.oiValue.textContent = `OI: ${formatValue(oiCumulative)}`;
+                        elements.oiData.textContent = formatValue(oiCumulative);
+                        updateColor(elements.oiData, oiCumulative);
                         console.log('Initialized OI with:', oiCandleData[0]);
                     }
                 } catch (error) {
@@ -240,6 +278,8 @@
                     oiSeries.setData(oiCandleData);
                     currentOiCandle = { ...oiCandleData[0] };
                     elements.oiValue.textContent = `OI: 0`;
+                    elements.oiData.textContent = '0';
+                    updateColor(elements.oiData, 0);
                 }
             }
 
@@ -332,11 +372,19 @@
                 if (isValidBar(currentCvdCandle)) {
                     cvdSeries.update(currentCvdCandle);
                     elements.cvdValue.textContent = `CVD: ${formatValue(cvdCumulative)}`;
+                    elements.cvdData.textContent = formatValue(cvdCumulative);
+                    updateColor(elements.cvdData, cvdCumulative);
                 }
             }
 
             function updateOiCandle(timestamp, value) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+                
+                if (lastOiValue !== null) {
+                    const delta = value - lastOiValue; // Calculate OI change
+                    oiCumulative += delta; // Accumulate delta
+                }
+                lastOiValue = value; // Update last value
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
                     if (currentOiCandle && isValidBar(currentOiCandle)) {
@@ -344,16 +392,18 @@
                         if (oiCandleData.length > MAX_BARS) oiCandleData = oiCandleData.slice(-MAX_BARS);
                         oiSeries.setData(oiCandleData);
                     }
-                    currentOiCandle = { time: barTime, open: value, high: value, low: value, close: value };
+                    currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
                 } else {
-                    currentOiCandle.high = Math.max(currentOiCandle.high, value);
-                    currentOiCandle.low = Math.min(currentOiCandle.low, value);
-                    currentOiCandle.close = value;
+                    currentOiCandle.high = Math.max(currentOiCandle.high, oiCumulative);
+                    currentOiCandle.low = Math.min(currentOiCandle.low, oiCumulative);
+                    currentOiCandle.close = oiCumulative;
                 }
                 
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
-                    elements.oiValue.textContent = `OI: ${formatValue(value)}`;
+                    elements.oiValue.textContent = `OI: ${formatValue(oiCumulative)}`;
+                    elements.oiData.textContent = formatValue(oiCumulative);
+                    updateColor(elements.oiData, oiCumulative);
                 }
             }
 
@@ -368,7 +418,6 @@
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         liqSeries.setData(liqCandleData);
                     }
-                    liquidationDelta = 0;
                     currentLiqCandle = { time: barTime, open: liquidationDelta, high: liquidationDelta, low: liquidationDelta, close: liquidationDelta };
                 }
                 
@@ -382,6 +431,8 @@
                     liqSeries.setData(liqCandleData);
                     liqSeries.update(currentLiqCandle);
                     elements.liqValue.textContent = `LIQ: ${formatValue(liquidationDelta)}`;
+                    elements.liqData.textContent = formatValue(liquidationDelta);
+                    updateColor(elements.liqData, liquidationDelta);
                 }
             }
 
@@ -501,12 +552,6 @@
                 'Bybit',
                 elements.bybitStatus
             );
-
-            // Simulate a liquidation after 10 seconds
-            setTimeout(() => {
-                console.log('Simulating liquidation...');
-                updateLiqCandle(Math.floor(Date.now() / 1000), 0.01, 'Sell');
-            }, 10000);
 
             console.log('Starting historical price data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
