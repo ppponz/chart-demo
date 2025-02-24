@@ -239,6 +239,9 @@
                     priceSeries.setData(historicalData);
                     console.log('Historical data set, scrolling to real-time');
                     priceChart.timeScale().scrollToRealTime();
+                    // Initialize currentBar from last historical bar
+                    currentBar = { ...historicalData[historicalData.length - 1] };
+                    console.log('Initialized currentBar from historical:', currentBar);
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -483,7 +486,7 @@
             console.log('Starting OI fetch');
             await fetchBinanceOpenInterest();
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            if (!historicalSuccess || !currentBar) {
+            if (!historicalSuccess) {
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
