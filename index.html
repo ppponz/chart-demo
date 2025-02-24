@@ -8,7 +8,8 @@
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        .chart-wrapper { height: 150px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        #price-chart { height: 300px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 116px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -18,11 +19,11 @@
 <body>
     <div id="loading-overlay"><div id="loading-text">Loading historical data...</div></div>
     <div id="container">
-        <div id="header"><h1>BTC-USD Price, Liquidations, CVD, and OI</h1></div>
-        <div id="price-chart" class="chart-wrapper"></div>
-        <div id="liq-chart" class="chart-wrapper"></div>
+        <div id="header"><h1>BTC-USD Price, CVD, OI, and Liquidations</h1></div>
+        <div id="price-chart"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
+        <div id="liq-chart" class="chart-wrapper"></div>
     </div>
     <div id="kraken-status">Kraken: Connecting</div>
     <div id="bybit-status">Bybit: Connecting</div>
@@ -128,20 +129,6 @@
                 title: 'Price'
             });
 
-            const liqChart = LightweightCharts.createChart(elements.liqChart, {
-                width: elements.liqChart.offsetWidth,
-                height: elements.liqChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
-                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
-            });
-            const liqDeltaSeries = liqChart.addLineSeries({ 
-                color: '#888888', 
-                lineWidth: 1, 
-                title: 'LD' 
-            });
-
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
@@ -170,20 +157,34 @@
                 title: 'OI' 
             });
 
+            const liqChart = LightweightCharts.createChart(elements.liqChart, {
+                width: elements.liqChart.offsetWidth,
+                height: elements.liqChart.offsetHeight,
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
+                grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
+                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
+                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
+            });
+            const liqDeltaSeries = liqChart.addLineSeries({ 
+                color: '#888888', 
+                lineWidth: 1, 
+                title: 'LD' 
+            });
+
             const initTime = Math.floor(Date.now() / 1000);
             console.log('Setting initial data');
             priceData = [{ time: initTime, value: 0 }];
             priceSeries.setData(priceData);
-            liquidationDeltaData = [{ time: initTime, value: 0 }];
-            liqDeltaSeries.setData(liquidationDeltaData);
             cvdData = [{ time: initTime, value: 0 }];
             cvdSeries.setData(cvdData);
             openInterestData = [{ time: initTime, value: 0 }];
             oiSeries.setData(openInterestData);
+            liquidationDeltaData = [{ time: initTime, value: 0 }];
+            liqDeltaSeries.setData(liquidationDeltaData);
             priceChart.timeScale().scrollToRealTime();
-            liqChart.timeScale().scrollToRealTime();
             cvdChart.timeScale().scrollToRealTime();
             oiChart.timeScale().scrollToRealTime();
+            liqChart.timeScale().scrollToRealTime();
 
             async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
@@ -461,9 +462,9 @@
 
             window.addEventListener('resize', () => {
                 priceChart.resize(elements.priceChart.offsetWidth, elements.priceChart.offsetHeight);
-                liqChart.resize(elements.liqChart.offsetWidth, elements.liqChart.offsetHeight);
                 cvdChart.resize(elements.cvdChart.offsetWidth, elements.cvdChart.offsetHeight);
                 oiChart.resize(elements.oiChart.offsetWidth, elements.oiChart.offsetHeight);
+                liqChart.resize(elements.liqChart.offsetWidth, elements.liqChart.offsetHeight);
             });
 
             window.addEventListener('unload', () => {
