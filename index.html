@@ -25,7 +25,7 @@
             justify-content: space-between; 
             align-items: center; 
             padding: 5px; 
-            background: #161b22; /* Gray like charts */
+            background: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
         }
@@ -45,7 +45,7 @@
         }
         #metrics-table td { 
             padding: 4px; 
-            font-size: 1.2em; /* Bigger numbers only */
+            font-size: 1.2em; 
             color: #D3D3D3; 
             text-align: center; 
         }
@@ -476,7 +476,7 @@
                         if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
                         cvdSeries.setData(cvdCandleData);
                     }
-                    currentCvdCandle = { time: barTime, open: csdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
+                    currentCvdCandle = { time: barTime, open: cvdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
                 }
                 
                 cvdCumulative += value;
