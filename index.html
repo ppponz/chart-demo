@@ -403,25 +403,37 @@
             }
 
             async function fetchHistoricalPriceData() {
-                const endTime = Math.floor(Date.now() / 1000);
-                const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60);
+                const endTime = new Date();
+                const startTime = new Date(endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000));
+                const chunkSize = 300; // Coinbase max candles per request
+                const granularity = 60; // 1 minute in seconds
+                const chunkSeconds = chunkSize * granularity; // 300 minutes = 18,000 seconds
+                let currentStart = new Date(startTime);
+                let allBars = [];
+
                 try {
-                    const url = `${COINBASE_OHLC_URL}?granularity=60&start=${startTime}&end=${endTime}`;
-                    console.log(`Fetching Coinbase OHLC: ${url}`);
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
+                    while (currentStart < endTime) {
+                        const currentEnd = new Date(Math.min(currentStart.getTime() + (chunkSeconds * 1000), endTime.getTime()));
+                        const url = `${COINBASE_OHLC_URL}?granularity=${granularity}&start=${currentStart.toISOString()}&end=${currentEnd.toISOString()}`;
+                        console.log(`Fetching Coinbase OHLC: ${url}`);
+                        const response = await fetch(url);
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-                    historicalData = data.map(bar => ({
-                        time: bar[0], // Coinbase: [time, low, high, open, close, volume]
-                        open: parseFloat(bar[3]),
-                        high: parseFloat(bar[2]),
-                        low: parseFloat(bar[1]),
-                        close: parseFloat(bar[4])
-                    })).filter(isValidBar);
+                        const data = await response.json();
+                        const bars = data.map(bar => ({
+                            time: bar[0], // [time, low, high, open, close, volume]
+                            open: parseFloat(bar[3]),
+                            high: parseFloat(bar[2]),
+                            low: parseFloat(bar[1]),
+                            close: parseFloat(bar[4])
+                        })).filter(isValidBar);
 
-                    console.log(`Fetched ${historicalData.length} valid bars`);
-                    historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
+                        allBars.push(...bars);
+                        currentStart = new Date(currentEnd.getTime() + (granularity * 1000)); // Move to next chunk
+                        await new Promise(resolve => setTimeout(resolve, 100)); // Rate limit delay
+                    }
+
+                    historicalData = [...new Map(allBars.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
@@ -641,7 +653,6 @@
                             debounceTitle(price);
                         }
 
-                        // Update CVD with Coinbase volume (assuming buy/sell based on side)
                         const side = data.side === 'buy' ? 1 : -1;
                         updateCvdCandle(timestamp, volume * side);
                     } catch (error) {
@@ -673,9 +684,6 @@
                             } else {
                                 console.warn('Invalid liquidation data:', liquidationData);
                             }
-                        } else if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
-                            // Note: Bybit trade data is still used for CVD in original script, but Coinbase replaces Kraken here
-                            // We’ll rely on Coinbase for price and CVD updates instead
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
