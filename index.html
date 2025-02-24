@@ -8,7 +8,7 @@
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        #price-chart { height: 300px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        #price-chart { height: 373px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         .chart-wrapper { height: 73px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
@@ -41,6 +41,7 @@
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
             const OI_INTERVAL = '5m'; // 5-minute OI data
+            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000; // 24 hours back
 
             // DOM elements
             const elements = {
@@ -132,7 +133,7 @@
             const priceChart = LightweightCharts.createChart(elements.priceChart, {
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 12 },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
@@ -150,7 +151,7 @@
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -165,7 +166,7 @@
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -180,7 +181,7 @@
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -255,21 +256,41 @@
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
                     candleSeries.setData(historicalData);
                     priceChart.timeScale().scrollToRealTime();
-                    elements.loadingOverlay.style.display = 'none';
-                    document.title = `BTC: $${historicalData[historicalData.length - 1].close.toFixed(2)}`;
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
-                    elements.loadingOverlay.style.display = 'none';
-                    document.title = 'BTC: $0.00';
                     return false;
                 }
             }
 
-            // Fetch Bybit historical open interest (7 days)
-            async function fetchBybitOpenInterest() {
+            // Mock historical CVD (if Bybit trade history unavailable)
+            async function fetchHistoricalCVD() {
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
+                    const now = Math.floor(Date.now() / 1000);
+                    const startTime = now - (HISTORY_DAYS * 24 * 60 * 60);
+                    cvdData = Array.from({ length: 100 }, (_, i) => ({
+                        time: startTime + (i * BAR_INTERVAL),
+                        value: Math.sin(i / 10) * 1000 // Mock sine wave
+                    }));
+                    cvdCumulative = cvdData[cvdData.length - 1].value;
+                    console.log(`Mocked ${cvdData.length} CVD points`, cvdData.slice(0, 5));
+                    try {
+                        cvdSeries.setData(cvdData);
+                    } catch (e) {
+                        console.error('CVD mock setData failed:', e, cvdData);
+                    }
+                    cvdChart.timeScale().scrollToRealTime();
+                } catch (error) {
+                    console.error('CVD mock fetch failed:', error);
+                }
+            }
+
+            // Fetch Bybit historical open interest (24h)
+            async function fetchBybitOpenInterest() {
+                const endTime = Date.now();
+                const startTime = endTime - OI_LIVE_RANGE;
+                try {
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -283,7 +304,11 @@
                     })).filter(isValidDataPoint).reverse();
                     console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
                     lastOiTime = openInterestData[openInterestData.length - 1].time;
-                    oiSeries.setData(openInterestData);
+                    try {
+                        oiSeries.setData(openInterestData);
+                    } catch (e) {
+                        console.error('OI historical setData failed:', e, openInterestData);
+                    }
                     oiChart.timeScale().scrollToRealTime();
                 } catch (error) {
                     console.error('Bybit OI fetch failed:', error);
@@ -294,14 +319,20 @@
                     }));
                     lastOiTime = now;
                     console.log('Using mock OI data:', openInterestData);
-                    oiSeries.setData(openInterestData);
+                    try {
+                        oiSeries.setData(openInterestData);
+                    } catch (e) {
+                        console.error('OI mock setData failed:', e, openInterestData);
+                    }
                 }
             }
 
             // Fetch live Bybit OI (REST polling)
             async function fetchBybitOpenInterestLive() {
+                const endTime = Date.now();
+                const startTime = endTime - OI_LIVE_RANGE;
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -322,7 +353,7 @@
                         try {
                             oiSeries.setData(openInterestData);
                         } catch (e) {
-                            console.error('OI setData failed:', e, openInterestData);
+                            console.error('OI live setData failed:', e, openInterestData);
                         }
                         console.log('Live OI update:', newData.slice(-1));
                     } else {
@@ -332,10 +363,8 @@
                     console.error('Bybit live OI fetch failed:', error);
                 }
             }
-            setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL);
-            setInterval(updateLiquidationChart, 5000); // Periodic liquidation update
 
-            // Kraken WebSocket
+            // Kraken WebSocket (Price only)
             const krakenWs = createWebSocket(
                 KRAKEN_WS_URL,
                 (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
@@ -391,7 +420,7 @@
                 elements.krakenStatus
             );
 
-            // Bybit WebSocket
+            // Bybit WebSocket (CVD, OI, Liquidations)
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
@@ -416,7 +445,7 @@
                         if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
                             const trade = data.data[0];
                             const volume = parseFloat(trade.v);
-                            const side = trade.S === 'Buy' ? 1 : -1;
+                            const side = trade.S === 'Buy' ? 1 : -1; // Buy +, Sell -
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
                                 cvdCumulative += volume * side;
@@ -426,13 +455,9 @@
                                 try {
                                     cvdSeries.setData(cvdData);
                                 } catch (e) {
-                                    console.error('CVD setData failed:', e, cvdData);
+                                    console.error('CVD live setData failed:', e, cvdData);
                                 }
                                 console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
-                                // Sync time scales
-                                liqChart.timeScale().applyOptions({ rightOffset: 5 });
-                                cvdChart.timeScale().applyOptions({ rightOffset: 5 });
-                                oiChart.timeScale().applyOptions({ rightOffset: 5 });
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -483,8 +508,11 @@
             // Main execution
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalData();
+            console.log('Starting CVD fetch');
+            await fetchHistoricalCVD();
             console.log('Starting OI fetch');
             await fetchBybitOpenInterest();
+            setInterval(fetchBybitOpenInterestLive, OI_POLL_INTERVAL);
             if (!historicalSuccess && !currentBar) {
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
@@ -492,6 +520,7 @@
                 candleSeries.setData([currentBar]);
                 document.title = 'BTC: $0.00';
             }
+            elements.loadingOverlay.style.display = 'none';
 
             window.addEventListener('resize', () => {
                 priceChart.resize(elements.priceChart.offsetWidth, elements.priceChart.offsetHeight);
