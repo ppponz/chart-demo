@@ -4,21 +4,107 @@
     <title>BTC Price, Liquidations, CVD, and OI</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
-        #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-        #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
-        #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        #price-chart { height: 300px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
-        .chart-wrapper { height: 116px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
-        #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        #loading-text { color: #888888; font-size: 1.2em; }
-        #status-container { position: fixed; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 5px; }
-        .status-box { padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
-        .metric-value { padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
-        #data-box { max-width: 1400px; margin: 10px auto; padding: 10px; background: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); text-align: center; }
-        #data-box table { width: 100%; border-collapse: collapse; }
-        #data-box th, #data-box td { padding: 8px; font-size: 1em; color: #D3D3D3; }
-        #data-box th { background: #1c2526; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow-x: hidden; 
+            font-family: 'Arial', sans-serif; 
+            background-color: #0d1117; 
+            color: #D3D3D3; 
+        }
+        #container { 
+            max-width: 1400px; 
+            margin: 10px auto; 
+            padding: 10px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+        }
+        #header { 
+            text-align: center; 
+            padding: 10px; 
+            background: #161b22; 
+            border-radius: 8px; 
+        }
+        #header h1 { 
+            margin: 0; 
+            font-size: 1.2em; 
+            color: #888888; 
+        }
+        #price-chart { 
+            height: 300px; 
+            background-color: #161b22; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
+            overflow: hidden; 
+        }
+        .chart-wrapper { 
+            height: 116px; 
+            background-color: #161b22; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
+            overflow: hidden; 
+        }
+        #loading-overlay { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            right: 0; 
+            bottom: 0; 
+            background: rgba(0, 0, 0, 0.8); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 1000; 
+        }
+        #loading-text { 
+            color: #888888; 
+            font-size: 1.2em; 
+        }
+        #status-container { 
+            position: fixed; 
+            top: 10px; 
+            right: 10px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 5px; 
+        }
+        .status-box { 
+            padding: 5px 10px; 
+            background: #161b22; 
+            border-radius: 4px; 
+            font-size: 0.9em; 
+        }
+        .metric-value { 
+            padding: 5px 10px; 
+            background: #161b22; 
+            border-radius: 4px; 
+            font-size: 0.9em; 
+        }
+        #data-box { 
+            max-width: 1400px; 
+            margin: 20px auto; /* Increased margin for visibility */
+            padding: 15px; 
+            background: #161b22; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
+            text-align: center; 
+            display: block; /* Ensure it’s visible */
+            position: relative; /* Ensure it’s in flow */
+            z-index: 10; /* Above other elements */
+        }
+        #data-box table { 
+            width: 100%; 
+            border-collapse: collapse; 
+        }
+        #data-box th, #data-box td { 
+            padding: 10px; 
+            font-size: 1.1em; /* Slightly larger for readability */
+            color: #D3D3D3; 
+        }
+        #data-box th { 
+            background: #1c2526; 
+        }
         .negative { color: #ff5555; } /* Red for negative */
         .positive { color: #00ffff; } /* Aqua for positive */
     </style>
@@ -93,6 +179,9 @@
                 liqData: document.getElementById('liq-data')
             };
 
+            // Log to confirm data-box exists
+            console.log('Data box element:', document.getElementById('data-box'));
+
             let historicalData = [];
             let currentBar = null;
             let liqCandleData = [];
@@ -106,8 +195,8 @@
             let cvdCandleData = [];
             let currentCvdCandle = null;
             let cvdCumulative = 0;
-            let oiCumulative = 0; // New cumulative OI
-            let lastOiValue = null; // Track last OI for delta
+            let oiCumulative = 0;
+            let lastOiValue = null;
             let liquidationDelta = 0;
             let isCvdInitialized = false;
             let isLiqInitialized = false;
@@ -374,6 +463,7 @@
                     elements.cvdValue.textContent = `CVD: ${formatValue(cvdCumulative)}`;
                     elements.cvdData.textContent = formatValue(cvdCumulative);
                     updateColor(elements.cvdData, cvdCumulative);
+                    console.log('Updated CVD in data box:', cvdCumulative);
                 }
             }
 
@@ -381,10 +471,10 @@
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 
                 if (lastOiValue !== null) {
-                    const delta = value - lastOiValue; // Calculate OI change
-                    oiCumulative += delta; // Accumulate delta
+                    const delta = value - lastOiValue;
+                    oiCumulative += delta;
                 }
-                lastOiValue = value; // Update last value
+                lastOiValue = value;
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
                     if (currentOiCandle && isValidBar(currentOiCandle)) {
@@ -404,6 +494,7 @@
                     elements.oiValue.textContent = `OI: ${formatValue(oiCumulative)}`;
                     elements.oiData.textContent = formatValue(oiCumulative);
                     updateColor(elements.oiData, oiCumulative);
+                    console.log('Updated OI in data box:', oiCumulative);
                 }
             }
 
@@ -433,6 +524,7 @@
                     elements.liqValue.textContent = `LIQ: ${formatValue(liquidationDelta)}`;
                     elements.liqData.textContent = formatValue(liquidationDelta);
                     updateColor(elements.liqData, liquidationDelta);
+                    console.log('Updated LIQ in data box:', liquidationDelta);
                 }
             }
 
