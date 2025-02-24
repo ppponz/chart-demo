@@ -2,13 +2,21 @@
 <html lang="en">
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
-    <script src="https://unpkg.com/lightweight-charts@5.0.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@5.0.2/dist/lightweight-charts.standalone.production.js" id="lw-charts"></script>
     <script>
-        // Fallback to v4.0.1 if v5.0.2 fails
-        if (typeof LightweightCharts === 'undefined') {
-            console.log('v5.0.2 failed to load, falling back to v4.0.1');
-            document.write('<script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"><\/script>');
-        }
+        // Check v5 load, fallback to v4 if needed
+        window.addEventListener('load', () => {
+            if (typeof LightweightCharts === 'undefined' || !LightweightCharts.createChart || typeof LightweightCharts.createChart !== 'function') {
+                console.log('v5.0.2 failed to load properly, falling back to v4.0.1');
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js';
+                script.onload = () => console.log('Fallback v4.0.1 loaded');
+                script.onerror = () => console.error('Fallback v4.0.1 failed to load');
+                document.head.appendChild(script);
+            } else {
+                console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
+            }
+        });
     </script>
     <style>
         body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
@@ -35,15 +43,11 @@
     <div id="kraken-status">Kraken: Connecting</div>
     <div id="bybit-status">Bybit: Connecting</div>
     <script>
-        // Wait for LightweightCharts to load
         (async () => {
-            if (typeof LightweightCharts === 'undefined') {
-                console.error('LightweightCharts not loaded yet, waiting...');
-                await new Promise(resolve => setTimeout(resolve, 500));
-                if (typeof LightweightCharts === 'undefined') {
-                    console.error('LightweightCharts failed to load entirely');
-                    return;
-                }
+            // Wait for LightweightCharts to load
+            while (typeof LightweightCharts === 'undefined' || !LightweightCharts.createChart) {
+                console.log('Waiting for LightweightCharts to load...');
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
             console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
 
