@@ -99,14 +99,16 @@
                         <tr>
                             <th>CVD</th>
                             <th>OI</th>
-                            <th>LIQ</th>
+                            <th>Long LIQ</th>
+                            <th>Short LIQ</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td id="cvd-data">0</td>
                             <td id="oi-data">0</td>
-                            <td id="liq-data">0</td>
+                            <td id="long-liq-data">0</td>
+                            <td id="short-liq-data">0</td>
                         </tr>
                     </tbody>
                 </table>
@@ -137,6 +139,7 @@
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
+            const PRESSURE_DECAY = 0.95; // Decay per minute
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -146,7 +149,8 @@
                 loadingOverlay: document.getElementById('loading-overlay'),
                 cvdData: document.getElementById('cvd-data'),
                 oiData: document.getElementById('oi-data'),
-                liqData: document.getElementById('liq-data'),
+                longLiqData: document.getElementById('long-liq-data'),
+                shortLiqData: document.getElementById('short-liq-data'),
                 connectionStatus: document.getElementById('connection-status')
             };
 
@@ -165,7 +169,9 @@
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
-            let liquidationDelta = 0;
+            let longPressure = 0;
+            let shortPressure = 0;
+            let lastPressureUpdate = Date.now();
             let isCvdInitialized = false;
             let isLiqInitialized = false;
             let connectionStatus = {
@@ -195,9 +201,9 @@
                 return value.toFixed(2);
             };
 
-            const formatDollar = (btcValue, isLiq = false) => {
-                const actualBtc = isLiq ? btcValue / LIQ_SENSITIVITY : btcValue;
-                const dollarValue = Math.round(actualBtc * lastBtcPrice / 10000) * 10000; // Round to nearest 10K
+            const formatDollar = (btcValue) => {
+                const actualBtc = btcValue / LIQ_SENSITIVITY;
+                const dollarValue = Math.round(actualBtc * lastBtcPrice / 10000) * 10000;
                 return '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
             };
 
@@ -459,7 +465,8 @@
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
                     elements.cvdData.textContent = formatDollar(cvdCumulative);
-                    elements.liqData.textContent = formatDollar(liquidationDelta, true);
+                    elements.longLiqData.textContent = formatDollar(longPressure);
+                    elements.shortLiqData.textContent = formatDollar(shortPressure);
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -535,31 +542,51 @@
             function updateLiqCandle(timestamp, value, side, rawData) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 console.log('Raw liquidation data:', rawData);
+                const now = Date.now();
+                const timeElapsed = (now - lastPressureUpdate) / 60000; // Minutes
+                lastPressureUpdate = now;
+
+                // Apply decay
+                longPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
+                shortPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
+
                 const adjustedValue = value * LIQ_SENSITIVITY;
-                const delta = (side === 'Sell' ? adjustedValue : -adjustedValue);
-                
+                const delta = adjustedValue;
+                const prevLongPressure = longPressure;
+                const prevShortPressure = shortPressure;
+
+                if (side === 'Buy') {
+                    longPressure += delta;
+                } else if (side === 'Sell') {
+                    shortPressure += delta;
+                }
+
+                console.log(`LIQ Update - Timestamp: ${timestamp}, BTC: ${value}, Side: ${side}, ` +
+                            `Long Delta: ${side === 'Buy' ? delta : 0}, Short Delta: ${side === 'Sell' ? delta : 0}, ` +
+                            `Prev Long: ${prevLongPressure}, Prev Short: ${prevShortPressure}, ` +
+                            `New Long: ${longPressure}, New Short: ${shortPressure}, Price: $${lastBtcPrice}`);
+
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
                         liqCandleData.push(currentLiqCandle);
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         liqSeries.setData(liqCandleData);
                     }
-                    currentLiqCandle = { time: barTime, open: liquidationDelta, high: liquidationDelta, low: liquidationDelta, close: liquidationDelta };
+                    currentLiqCandle = { time: barTime, open: longPressure - shortPressure, high: longPressure - shortPressure, low: longPressure - shortPressure, close: longPressure - shortPressure };
                 }
-                
-                liquidationDelta += delta;
-                currentLiqCandle.high = Math.max(currentLiqCandle.high, liquidationDelta);
-                currentLiqCandle.low = Math.min(currentLiqCandle.low, liquidationDelta);
-                currentLiqCandle.close = liquidationDelta;
-                
+
+                const netPressure = longPressure - shortPressure;
+                currentLiqCandle.high = Math.max(currentLiqCandle.high, netPressure);
+                currentLiqCandle.low = Math.min(currentLiqCandle.low, netPressure);
+                currentLiqCandle.close = netPressure;
+
                 if (isValidBar(currentLiqCandle)) {
-                    console.log('Updating liquidation candle:', { time: barTime, open: currentLiqCandle.open, high: currentLiqCandle.high, low: currentLiqCandle.low, close: liquidationDelta });
-                    liqSeries.setData(liqCandleData);
+                    console.log('Updating liquidation candle:', { time: barTime, open: currentLiqCandle.open, high: currentLiqCandle.high, low: currentLiqCandle.low, close: netPressure });
                     liqSeries.update(currentLiqCandle);
                     liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.liqData.textContent = formatDollar(liquidationDelta, true);
-                    updateColor(elements.liqData, liquidationDelta);
-                    console.log('Updated LIQ in metrics box:', liquidationDelta);
+                    elements.longLiqData.textContent = formatDollar(longPressure);
+                    elements.shortLiqData.textContent = formatDollar(shortPressure);
+                    console.log('Updated LIQ in metrics box:', { longPressure, shortPressure });
                 }
             }
 
