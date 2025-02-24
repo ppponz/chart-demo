@@ -54,7 +54,7 @@
             color: #888888; 
         }
         #price-chart { 
-            height: 300px; /* Increased 20% from 250px */
+            height: 300px; 
             background-color: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
@@ -83,9 +83,9 @@
             color: #888888; 
             font-size: 1.2em; 
         }
-        .negative { color: #ff5555; } /* Red for negative */
-        .positive { color: #00ffff; } /* Aqua for positive */
-        .disconnected { color: #ef5350; } /* Red for disconnected */
+        .negative { color: #ff5555; } 
+        .positive { color: #00ffff; } 
+        .disconnected { color: #ef5350; }
     </style>
 </head>
 <body>
@@ -130,8 +130,8 @@
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300; // 5 minutes for bars
-            const MAX_BARS = 2016; // 7 days of 5-min bars
+            const BAR_INTERVAL = 300;
+            const MAX_BARS = 2016;
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
@@ -280,7 +280,7 @@
                 priceLineVisible: false,
                 lastValueVisible: false
             });
-            cvdZeroLine.setData([{ time: 0, value: 0 }]); // Initial zero line
+            cvdZeroLine.setData([{ time: 0, value: 0 }]);
 
             const oiChart = LightweightCharts.createChart(elements.oiChart, {
                 width: elements.oiChart.offsetWidth,
@@ -304,7 +304,7 @@
                 priceLineVisible: false,
                 lastValueVisible: false
             });
-            oiZeroLine.setData([{ time: 0, value: 0 }]); // Initial zero line
+            oiZeroLine.setData([{ time: 0, value: 0 }]);
 
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
                 width: elements.liqChart.offsetWidth,
@@ -328,7 +328,7 @@
                 priceLineVisible: false,
                 lastValueVisible: false
             });
-            liqZeroLine.setData([{ time: 0, value: 0 }]); // Initial zero line
+            liqZeroLine.setData([{ time: 0, value: 0 }]);
 
             const allCharts = [priceChart, cvdChart, oiChart, liqChart];
             function syncTimeScales() {
@@ -568,6 +568,31 @@
                 }
             }
 
+            async function fetchBybitLiquidationsFallback() {
+                try {
+                    const url = 'https://api.bybit.com/v5/market/recent-liquidations?symbol=BTCUSDT&limit=50';
+                    console.log('Fetching Bybit liquidations via REST:', url);
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    console.log('Bybit REST liquidations:', data);
+
+                    if (data.result && data.result.list) {
+                        data.result.list.forEach(liquidation => {
+                            const timestamp = Math.floor(parseInt(liquidation.time) / 1000);
+                            const liqValue = parseFloat(liquidation.qty);
+                            const side = liquidation.side;
+                            if (timestamp && liqValue && side) {
+                                console.log('Processing REST liquidation:', { timestamp, liqValue, side });
+                                updateLiqCandle(timestamp, liqValue, side);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Bybit REST liquidation fetch failed:', error);
+                }
+            }
+
             const krakenWs = createWebSocket(
                 KRAKEN_WS_URL,
                 (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
@@ -641,9 +666,7 @@
                             } else {
                                 console.warn('Invalid liquidation data:', liquidationData);
                             }
-                        }
-
-                        if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
+                        } else if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
                             const trade = data.data[0];
                             const volume = parseFloat(trade.v);
                             const side = trade.S === 'Buy' ? 1 : -1;
@@ -654,6 +677,8 @@
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
+                        } else {
+                            console.log('No liquidation data received yet from Bybit:', data.topic || 'Unknown topic');
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
@@ -680,6 +705,7 @@
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
+            setInterval(fetchBybitLiquidationsFallback, 30000); // Fallback every 30 seconds
             elements.loadingOverlay.style.display = 'none';
 
             window.addEventListener('resize', () => {
@@ -696,4 +722,4 @@
         })();
     </script>
 </body>
-</html>       
+</html>
