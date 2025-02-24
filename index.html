@@ -281,7 +281,7 @@
                     if (data.retCode !== 0) throw new Error(`Bybit OI error: ${data.retMsg}`);
                     openInterestData = data.result.list.map(item => ({
                         time: Math.floor(parseInt(item[0]) / 1000), // Timestamp
-                        value: parseFloat(item[7]) || parseFloat(item[5]) // Volume or close as proxy
+                        value: parseFloat(item[5]) // Volume
                     })).filter(isValidDataPoint).reverse();
                     console.log(`Fetched ${openInterestData.length} OI points`, openInterestData.slice(0, 5));
                     lastOiTime = openInterestData[openInterestData.length - 1].time;
@@ -324,7 +324,7 @@
                     if (data.retCode === 0 && data.result.list && data.result.list.length > 0) {
                         const newData = data.result.list.map(item => ({
                             time: Math.floor(parseInt(item[0]) / 1000),
-                            value: parseFloat(item[7]) || parseFloat(item[5])
+                            value: parseFloat(item[5])
                         })).filter(isValidDataPoint).reverse();
                         openInterestData = [...new Set([...openInterestData, ...newData].map(d => JSON.stringify(d)))].map(JSON.parse);
                         if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
@@ -404,16 +404,18 @@
                 cvdCumulative += bucketValue;
                 cvdData.push({ time: bucketTime, value: cvdCumulative });
                 if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
+                const uniqueCvdData = [...new Map(cvdData.map(item => [item.time, item])).values()];
                 cvdUpdateCount++;
                 if (cvdUpdateCount % 5 === 0) {
-                    console.log('CVD data points pre-setData:', cvdData.slice(-5));
+                    console.log('CVD data points pre-setData:', uniqueCvdData.slice(-5));
                     console.log('Live CVD update:', { time: bucketTime, value: cvdCumulative });
                 }
+                console.log('Raw CVD data before setData:', uniqueCvdData);
                 try {
-                    cvdSeries.setData(cvdData.filter(isValidDataPoint));
+                    cvdSeries.setData(uniqueCvdData.filter(isValidDataPoint));
                     cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
                 } catch (e) {
-                    console.error('CVD live setData failed:', e, 'Data:', cvdData);
+                    console.error('CVD live setData failed:', e, 'Data:', uniqueCvdData);
                 }
                 cvdBuffer = [];
             }
