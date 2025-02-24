@@ -25,7 +25,7 @@
             justify-content: space-between; 
             align-items: center; 
             padding: 5px; 
-            background: #161b22; 
+            background: #161b22; /* Gray like charts */
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
         }
@@ -44,19 +44,10 @@
             background: #1c2526; 
         }
         #metrics-table td { 
-            padding: 2px; 
-            font-size: 0.8em; 
+            padding: 4px; 
+            font-size: 1.2em; /* Bigger numbers only */
             color: #D3D3D3; 
             text-align: center; 
-        }
-        #metrics-table .value { 
-            display: block; 
-            font-size: 0.8em; 
-        }
-        #metrics-table .time { 
-            display: block; 
-            font-size: 0.6em; 
-            color: #888888; 
         }
         #connection-status { 
             padding: 5px 10px; 
@@ -113,9 +104,9 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td id="cvd-data"><span class="value">0</span><span class="time"></span></td>
-                            <td id="oi-data"><span class="value">0</span><span class="time"></span></td>
-                            <td id="liq-data"><span class="value">0</span><span class="time"></span></td>
+                            <td id="cvd-data">0</td>
+                            <td id="oi-data">0</td>
+                            <td id="liq-data">0</td>
                         </tr>
                     </tbody>
                 </table>
@@ -202,11 +193,6 @@
                 if (absValue >= 1000000) return (value / 1000000).toFixed(2) + 'm';
                 if (absValue >= 1000) return (value / 1000).toFixed(2) + 'k';
                 return value.toFixed(2);
-            };
-
-            const formatTime = (timestamp) => {
-                const date = new Date(timestamp * 1000);
-                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             };
 
             const updateColor = (element, value) => {
@@ -377,9 +363,8 @@
                         oiSeries.setData(oiCandleData);
                         oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                         currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
-                        elements.oiData.querySelector('.value').textContent = formatValue(oiCumulative);
-                        elements.oiData.querySelector('.time').textContent = formatTime(barTime);
-                        updateColor(elements.oiData.querySelector('.value'), oiCumulative);
+                        elements.oiData.textContent = formatValue(oiCumulative);
+                        updateColor(elements.oiData, oiCumulative);
                         connectionStatus.binance = true;
                         updateConnectionStatus();
                         console.log('Initialized OI with:', oiCandleData[oiCandleData.length - 1]);
@@ -400,9 +385,8 @@
                     oiSeries.setData(oiCandleData);
                     oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                    elements.oiData.querySelector('.value').textContent = '0';
-                    elements.oiData.querySelector('.time').textContent = formatTime(barTime);
-                    updateColor(elements.oiData.querySelector('.value'), 0);
+                    elements.oiData.textContent = '0';
+                    updateColor(elements.oiData, 0);
                 }
             }
 
@@ -467,30 +451,7 @@
                     isCvdInitialized = true;
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
-                    elements.cvdData.querySelector('.time').textContent = formatTime(currentBar.time);
-                    elements.liqData.querySelector('.time').textContent = formatTime(currentLiqCandle.time);
                     console.log('Initialized currentBar from historical:', currentBar);
-                    
-                    // Sync metrics with scroll
-                    priceChart.timeScale().subscribeVisibleTimeRangeChange(() => {
-                        const range = priceChart.timeScale().getVisibleRange();
-                        if (range) {
-                            const rightTime = Math.floor(range.to / BAR_INTERVAL) * BAR_INTERVAL;
-                            const cvdBar = cvdCandleData.find(bar => bar.time === rightTime) || cvdCandleData[cvdCandleData.length - 1];
-                            const oiBar = oiCandleData.find(bar => bar.time === rightTime) || oiCandleData[oiCandleData.length - 1];
-                            const liqBar = liqCandleData.find(bar => bar.time === rightTime) || liqCandleData[liqCandleData.length - 1];
-                            elements.cvdData.querySelector('.value').textContent = formatValue(cvdBar.close);
-                            elements.cvdData.querySelector('.time').textContent = formatTime(cvdBar.time);
-                            updateColor(elements.cvdData.querySelector('.value'), cvdBar.close);
-                            elements.oiData.querySelector('.value').textContent = formatValue(oiBar.close);
-                            elements.oiData.querySelector('.time').textContent = formatTime(oiBar.time);
-                            updateColor(elements.oiData.querySelector('.value'), oiBar.close);
-                            elements.liqData.querySelector('.value').textContent = formatValue(liqBar.close);
-                            elements.liqData.querySelector('.time').textContent = formatTime(liqBar.time);
-                            updateColor(elements.liqData.querySelector('.value'), liqBar.close);
-                        }
-                    });
-
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -515,7 +476,7 @@
                         if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
                         cvdSeries.setData(cvdCandleData);
                     }
-                    currentCvdCandle = { time: barTime, open: cvdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
+                    currentCvdCandle = { time: barTime, open: csdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
                 }
                 
                 cvdCumulative += value;
@@ -526,9 +487,8 @@
                 if (isValidBar(currentCvdCandle)) {
                     cvdSeries.update(currentCvdCandle);
                     cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.cvdData.querySelector('.value').textContent = formatValue(cvdCumulative);
-                    elements.cvdData.querySelector('.time').textContent = formatTime(currentCvdCandle.time);
-                    updateColor(elements.cvdData.querySelector('.value'), cvdCumulative);
+                    elements.cvdData.textContent = formatValue(cvdCumulative);
+                    updateColor(elements.cvdData, cvdCumulative);
                     console.log('Updated CVD in metrics box:', cvdCumulative);
                 }
             }
@@ -558,9 +518,8 @@
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
                     oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.oiData.querySelector('.value').textContent = formatValue(oiCumulative);
-                    elements.oiData.querySelector('.time').textContent = formatTime(currentOiCandle.time);
-                    updateColor(elements.oiData.querySelector('.value'), oiCumulative);
+                    elements.oiData.textContent = formatValue(oiCumulative);
+                    updateColor(elements.oiData, oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
                 }
             }
@@ -590,9 +549,8 @@
                     liqSeries.setData(liqCandleData);
                     liqSeries.update(currentLiqCandle);
                     liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.liqData.querySelector('.value').textContent = formatValue(liquidationDelta);
-                    elements.liqData.querySelector('.time').textContent = formatTime(currentLiqCandle.time);
-                    updateColor(elements.liqData.querySelector('.value'), liquidationDelta);
+                    elements.liqData.textContent = formatValue(liquidationDelta);
+                    updateColor(elements.liqData, liquidationDelta);
                     console.log('Updated LIQ in metrics box:', liquidationDelta);
                 }
             }
@@ -732,26 +690,6 @@
                 currentBar = { ...historicalData[0] };
                 await fetchInitialOpenInterest();
                 document.title = 'BTC: $0.00';
-                elements.cvdData.querySelector('.time').textContent = formatTime(barTime);
-                elements.liqData.querySelector('.time').textContent = formatTime(barTime);
-                priceChart.timeScale().subscribeVisibleTimeRangeChange(() => {
-                    const range = priceChart.timeScale().getVisibleRange();
-                    if (range) {
-                        const rightTime = Math.floor(range.to / BAR_INTERVAL) * BAR_INTERVAL;
-                        const cvdBar = cvdCandleData.find(bar => bar.time === rightTime) || cvdCandleData[cvdCandleData.length - 1];
-                        const oiBar = oiCandleData.find(bar => bar.time === rightTime) || oiCandleData[oiCandleData.length - 1];
-                        const liqBar = liqCandleData.find(bar => bar.time === rightTime) || liqCandleData[liqCandleData.length - 1];
-                        elements.cvdData.querySelector('.value').textContent = formatValue(cvdBar.close);
-                        elements.cvdData.querySelector('.time').textContent = formatTime(cvdBar.time);
-                        updateColor(elements.cvdData.querySelector('.value'), cvdBar.close);
-                        elements.oiData.querySelector('.value').textContent = formatValue(oiBar.close);
-                        elements.oiData.querySelector('.time').textContent = formatTime(oiBar.time);
-                        updateColor(elements.oiData.querySelector('.value'), oiBar.close);
-                        elements.liqData.querySelector('.value').textContent = formatValue(liqBar.close);
-                        elements.liqData.querySelector('.time').textContent = formatTime(liqBar.time);
-                        updateColor(elements.liqData.querySelector('.value'), liqBar.close);
-                    }
-                });
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
