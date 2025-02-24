@@ -20,37 +20,48 @@
             flex-direction: column; 
             gap: 10px; 
         }
-        #metrics-box { 
-            text-align: center; 
-            padding: 5px; /* Reduced from 10px */
+        #title-box { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 5px; 
             background: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
         }
-        #metrics-box table { 
+        #metrics-table { 
+            flex: 1; 
+            text-align: center; 
+        }
+        #metrics-table table { 
             width: 100%; 
             border-collapse: collapse; 
         }
-        #metrics-box th { 
-            padding: 4px; /* Reduced from 8px */
-            font-size: 0.9em; /* Smaller font */
+        #metrics-table th { 
+            padding: 4px; 
+            font-size: 0.9em; 
             color: #D3D3D3; 
             background: #1c2526; 
         }
-        #metrics-box td { 
-            padding: 4px; /* Reduced from 8px */
-            font-size: 0.8em; /* Smaller font */
+        #metrics-table td { 
+            padding: 4px; 
+            font-size: 0.8em; 
             color: #D3D3D3; 
         }
+        #connection-status { 
+            padding: 5px 10px; 
+            font-size: 0.9em; 
+            color: #888888; 
+        }
         #price-chart { 
-            height: 250px; /* Reduced from 300px */
+            height: 250px; 
             background-color: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
             overflow: hidden; 
         }
         .chart-wrapper { 
-            height: 100px; /* Reduced from 116px */
+            height: 100px; 
             background-color: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
@@ -74,28 +85,32 @@
         }
         .negative { color: #ff5555; } /* Red for negative */
         .positive { color: #00ffff; } /* Aqua for positive */
+        .disconnected { color: #ef5350; } /* Red for disconnected */
     </style>
 </head>
 <body>
     <div id="loading-overlay"><div id="loading-text">Loading historical price data...</div></div>
     <div id="container">
-        <div id="metrics-box">
-            <table>
-                <thead>
-                    <tr>
-                        <th>CVD</th>
-                        <th>OI</th>
-                        <th>LIQ</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td id="cvd-data">0</td>
-                        <td id="oi-data">0</td>
-                        <td id="liq-data">0</td>
-                    </tr>
-                </tbody>
-            </table>
+        <div id="title-box">
+            <div id="metrics-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>CVD</th>
+                            <th>OI</th>
+                            <th>LIQ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td id="cvd-data">0</td>
+                            <td id="oi-data">0</td>
+                            <td id="liq-data">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="connection-status">Connecting...</div>
         </div>
         <div id="price-chart"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
@@ -130,7 +145,8 @@
                 loadingOverlay: document.getElementById('loading-overlay'),
                 cvdData: document.getElementById('cvd-data'),
                 oiData: document.getElementById('oi-data'),
-                liqData: document.getElementById('liq-data')
+                liqData: document.getElementById('liq-data'),
+                connectionStatus: document.getElementById('connection-status')
             };
 
             let historicalData = [];
@@ -151,6 +167,11 @@
             let liquidationDelta = 0;
             let isCvdInitialized = false;
             let isLiqInitialized = false;
+            let connectionStatus = {
+                kraken: false,
+                bybit: false,
+                binance: false
+            };
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const debounceTitle = (price) => {
@@ -179,12 +200,22 @@
                 else if (value > 0) element.classList.add('positive');
             };
 
+            const updateConnectionStatus = () => {
+                const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
+                elements.connectionStatus.textContent = allConnected ? 'Connected' : 'Disconnected';
+                elements.connectionStatus.classList.remove('disconnected');
+                if (!allConnected) elements.connectionStatus.classList.add('disconnected');
+                console.log('Connection status updated:', elements.connectionStatus.textContent);
+            };
+
             function createWebSocket(url, onOpen, onMessage, label) {
                 let ws = new WebSocket(url);
                 let reconnectDelay = 2000;
 
                 ws.onopen = () => {
                     console.log(`${label} WebSocket connected`);
+                    connectionStatus[label.toLowerCase()] = true;
+                    updateConnectionStatus();
                     onOpen(ws);
                     reconnectDelay = 2000;
                 };
@@ -193,10 +224,14 @@
 
                 ws.onerror = (error) => {
                     console.error(`${label} WebSocket error:`, error);
+                    connectionStatus[label.toLowerCase()] = false;
+                    updateConnectionStatus();
                 };
 
                 ws.onclose = () => {
                     console.log(`${label} WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+                    connectionStatus[label.toLowerCase()] = false;
+                    updateConnectionStatus();
                     setTimeout(() => {
                         ws = createWebSocket(url, onOpen, onMessage, label);
                     }, reconnectDelay);
@@ -301,10 +336,14 @@
                         currentOiCandle = { ...oiCandleData[0] };
                         elements.oiData.textContent = formatValue(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
+                        connectionStatus.binance = true;
+                        updateConnectionStatus();
                         console.log('Initialized OI with:', oiCandleData[0]);
                     }
                 } catch (error) {
                     console.error('Initial Binance OI fetch failed:', error);
+                    connectionStatus.binance = false;
+                    updateConnectionStatus();
                     const now = Math.floor(Date.now() / 1000);
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                     oiCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
@@ -364,13 +403,6 @@
                     console.log('Setting historical data to chart:', historicalData);
 
                     priceSeries.setData(historicalData);
-                    // Add exchange labels to Price chart
-                    const lastTime = historicalData[historicalData.length - 1].time;
-                    priceSeries.setMarkers([
-                        { time: lastTime, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Kraken', size: 1 },
-                        { time: lastTime - BAR_INTERVAL, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Bybit', size: 1 },
-                        { time: lastTime - 2 * BAR_INTERVAL, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Binance', size: 1 }
-                    ]);
                     liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                     liqSeries.setData(liqCandleData);
                     currentLiqCandle = { ...liqCandleData[liqCandleData.length - 1] };
@@ -382,6 +414,8 @@
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
+                    connectionStatus.kraken = false;
+                    updateConnectionStatus();
                     return false;
                 }
             }
@@ -482,6 +516,8 @@
                     const response = await fetch(url);
                     if (!response.ok) {
                         console.warn(`OI fetch failed with status: ${response.status}`);
+                        connectionStatus.binance = false;
+                        updateConnectionStatus();
                         return;
                     }
                     const data = await response.json();
@@ -489,10 +525,14 @@
                     const now = Math.floor(Date.now() / 1000);
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
+                        connectionStatus.binance = true;
+                        updateConnectionStatus();
                         updateOiCandle(now, value);
                     }
                 } catch (error) {
                     console.error('Binance live OI fetch failed:', error);
+                    connectionStatus.binance = false;
+                    updateConnectionStatus();
                 }
             }
 
@@ -597,11 +637,6 @@
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
                 priceSeries.setData(historicalData);
-                priceSeries.setMarkers([
-                    { time: barTime, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Kraken', size: 1 },
-                    { time: barTime - BAR_INTERVAL, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Bybit', size: 1 },
-                    { time: barTime - 2 * BAR_INTERVAL, position: 'aboveBar', color: '#888888', shape: 'circle', text: 'Binance', size: 1 }
-                ]);
                 liqCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
                 liqSeries.setData(liqCandleData);
                 currentLiqCandle = { ...liqCandleData[0] };
