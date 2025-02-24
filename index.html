@@ -141,7 +141,7 @@
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
@@ -158,7 +158,7 @@
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -175,7 +175,7 @@
                 width: elements.oiChart.offsetWidth,
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -192,7 +192,7 @@
                 width: elements.liqChart.offsetWidth,
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // Grid removed
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
@@ -466,14 +466,15 @@
                         console.log('Raw Bybit message:', data);
 
                         if (data.topic === 'liquidation.BTCUSDT' && data.data) {
-                            const { side, qty, time, price, orderId } = data.data;
-                            const timestamp = parseInt(time) / 1000;
-                            const liqValue = parseFloat(qty || 0);
-                            if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
+                            const liquidationData = data.data;
+                            const timestamp = Math.floor(parseInt(data.ts) / 1000); // Use root-level ts
+                            const liqValue = parseFloat(liquidationData.qty || 0);
+                            const side = liquidationData.side;
+                            if (Number.isFinite(timestamp) && Number.isFinite(liqValue) && side) {
                                 console.log('Processing liquidation:', { timestamp, liqValue, side });
                                 updateLiqCandle(timestamp, liqValue, side);
                             } else {
-                                console.warn('Invalid liquidation data:', { side, qty, time, price, orderId });
+                                console.warn('Invalid liquidation data:', liquidationData);
                             }
                         }
 
