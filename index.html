@@ -195,6 +195,12 @@
                 return value.toFixed(2);
             };
 
+            const formatBtcAndDollar = (btcValue, isLiq = false) => {
+                const actualBtc = isLiq ? btcValue / LIQ_SENSITIVITY : btcValue;
+                const dollarValue = actualBtc * lastBtcPrice;
+                return `${actualBtc.toFixed(2)} BTC / $${Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+            };
+
             const updateColor = (element, value) => {
                 element.classList.remove('negative', 'positive');
                 if (value < 0) element.classList.add('negative');
@@ -363,7 +369,7 @@
                         oiSeries.setData(oiCandleData);
                         oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                         currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
-                        elements.oiData.textContent = formatValue(oiCumulative);
+                        elements.oiData.textContent = formatBtcAndDollar(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
                         connectionStatus.binance = true;
                         updateConnectionStatus();
@@ -385,7 +391,7 @@
                     oiSeries.setData(oiCandleData);
                     oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                    elements.oiData.textContent = '0';
+                    elements.oiData.textContent = formatBtcAndDollar(0);
                     updateColor(elements.oiData, 0);
                 }
             }
@@ -452,6 +458,8 @@
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
+                    elements.cvdData.textContent = formatBtcAndDollar(cvdCumulative);
+                    elements.liqData.textContent = formatBtcAndDollar(liquidationDelta, true);
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -487,7 +495,7 @@
                 if (isValidBar(currentCvdCandle)) {
                     cvdSeries.update(currentCvdCandle);
                     cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.cvdData.textContent = formatValue(cvdCumulative);
+                    elements.cvdData.textContent = formatBtcAndDollar(cvdCumulative);
                     updateColor(elements.cvdData, cvdCumulative);
                     console.log('Updated CVD in metrics box:', cvdCumulative);
                 }
@@ -518,7 +526,7 @@
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
                     oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.oiData.textContent = formatValue(oiCumulative);
+                    elements.oiData.textContent = formatBtcAndDollar(oiCumulative);
                     updateColor(elements.oiData, oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
                 }
@@ -549,7 +557,7 @@
                     liqSeries.setData(liqCandleData);
                     liqSeries.update(currentLiqCandle);
                     liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.liqData.textContent = formatValue(liquidationDelta);
+                    elements.liqData.textContent = formatBtcAndDollar(liquidationDelta, true);
                     updateColor(elements.liqData, liquidationDelta);
                     console.log('Updated LIQ in metrics box:', liquidationDelta);
                 }
