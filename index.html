@@ -128,18 +128,18 @@
             }
             console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
 
-            const KRAKEN_WS_URL = 'wss://ws.kraken.com';
+            const COINBASE_WS_URL = 'wss://ws-feed.exchange.coinbase.com';
+            const COINBASE_OHLC_URL = 'https://api.exchange.coinbase.com/products/BTC-USD/candles';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
-            const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const HISTORY_DAYS = 7; // 1 week (7 days)
+            const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 60; // 1 minute (60 seconds)
-            const MAX_BARS = 10080; // 7 days of 1-minute bars (7 * 24 * 60)
+            const MAX_BARS = 10080; // 7 days of 1-minute bars
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
-            const PRESSURE_DECAY = 0.99; // Adjusted for 1-minute intervals
+            const PRESSURE_DECAY = 0.99;
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -175,7 +175,7 @@
             let isCvdInitialized = false;
             let isLiqInitialized = false;
             let connectionStatus = {
-                kraken: false,
+                coinbase: false,
                 bybit: false,
                 binance: false
             };
@@ -214,7 +214,7 @@
             };
 
             const updateConnectionStatus = () => {
-                const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
+                const allConnected = connectionStatus.coinbase && connectionStatus.bybit && connectionStatus.binance;
                 elements.connectionStatus.textContent = allConnected ? 'Connected' : 'Disconnected';
                 elements.connectionStatus.classList.remove('disconnected');
                 if (!allConnected) elements.connectionStatus.classList.add('disconnected');
@@ -403,47 +403,24 @@
             }
 
             async function fetchHistoricalPriceData() {
-                const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
+                const endTime = Math.floor(Date.now() / 1000);
+                const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
-                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${startTime}`;
-                    console.log(`Fetching Kraken OHLC: ${url}`);
+                    const url = `${COINBASE_OHLC_URL}?granularity=60&start=${startTime}&end=${endTime}`;
+                    console.log(`Fetching Coinbase OHLC: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
 
-                    if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
-                    const bars = data.result['XXBTZUSD'] || [];
-                    if (!bars.length) throw new Error('No bars returned');
-
-                    historicalData = bars.map(bar => ({
-                        time: parseInt(bar[0], 10),
-                        open: parseFloat(bar[1]),
+                    historicalData = data.map(bar => ({
+                        time: bar[0], // Coinbase: [time, low, high, open, close, volume]
+                        open: parseFloat(bar[3]),
                         high: parseFloat(bar[2]),
-                        low: parseFloat(bar[3]),
+                        low: parseFloat(bar[1]),
                         close: parseFloat(bar[4])
                     })).filter(isValidBar);
 
                     console.log(`Fetched ${historicalData.length} valid bars`);
-                    if (historicalData.length < MAX_BARS) {
-                        const lastTime = historicalData[historicalData.length - 1].time;
-                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${lastTime + BAR_INTERVAL}`;
-                        console.log(`Fetching additional Kraken OHLC: ${secondUrl}`);
-                        const secondResponse = await fetch(secondUrl);
-                        if (secondResponse.ok) {
-                            const secondData = await secondResponse.json();
-                            if (secondData.error.length === 0) {
-                                const moreBars = secondData.result['XXBTZUSD'] || [];
-                                historicalData.push(...moreBars.map(bar => ({
-                                    time: parseInt(bar[0], 10),
-                                    open: parseFloat(bar[1]),
-                                    high: parseFloat(bar[2]),
-                                    low: parseFloat(bar[3]),
-                                    close: parseFloat(bar[4])
-                                })).filter(isValidBar));
-                            }
-                        }
-                    }
-
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
@@ -469,8 +446,8 @@
                     elements.shortLiqData.textContent = formatDollar(shortPressure);
                     return true;
                 } catch (error) {
-                    console.error('Kraken historical fetch failed:', error);
-                    connectionStatus.kraken = false;
+                    console.error('Coinbase historical fetch failed:', error);
+                    connectionStatus.coinbase = false;
                     updateConnectionStatus();
                     return false;
                 }
@@ -543,10 +520,9 @@
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 console.log('Raw liquidation data:', rawData);
                 const now = Date.now();
-                const timeElapsed = (now - lastPressureUpdate) / 60000; // Minutes
+                const timeElapsed = (now - lastPressureUpdate) / 60000;
                 lastPressureUpdate = now;
 
-                // Apply decay
                 longPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
                 shortPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
 
@@ -617,20 +593,24 @@
                 }
             }
 
-            const krakenWs = createWebSocket(
-                KRAKEN_WS_URL,
-                (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
+            const coinbaseWs = createWebSocket(
+                COINBASE_WS_URL,
+                (ws) => ws.send(JSON.stringify({
+                    type: 'subscribe',
+                    product_ids: ['BTC-USD'],
+                    channels: ['matches']
+                })),
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') return;
-                        console.log('Raw Kraken trade:', data);
+                        if (data.type !== 'match') return;
+                        console.log('Raw Coinbase trade:', data);
 
-                        const trade = data[1][0];
-                        const price = parseFloat(trade[0]);
-                        const timestamp = Math.floor(parseFloat(trade[2]));
-                        if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
-                            console.warn('Invalid trade data:', trade);
+                        const price = parseFloat(data.price);
+                        const volume = parseFloat(data.size);
+                        const timestamp = Math.floor(new Date(data.time).getTime() / 1000);
+                        if (!Number.isFinite(price) || !Number.isFinite(timestamp) || !Number.isFinite(volume)) {
+                            console.warn('Invalid trade data:', data);
                             return;
                         }
 
@@ -648,7 +628,7 @@
                             currentBar.close = price;
                         }
 
-                        console.log('Live trade update:', { price, bar: currentBar });
+                        console.log('Live trade update:', { price, volume, bar: currentBar });
                         tradeCount++;
                         logTradeCount();
                         if (isValidBar(currentBar)) {
@@ -660,11 +640,15 @@
                             }
                             debounceTitle(price);
                         }
+
+                        // Update CVD with Coinbase volume (assuming buy/sell based on side)
+                        const side = data.side === 'buy' ? 1 : -1;
+                        updateCvdCandle(timestamp, volume * side);
                     } catch (error) {
-                        console.error('Kraken WebSocket processing error:', error);
+                        console.error('Coinbase WebSocket processing error:', error);
                     }
                 },
-                'Kraken'
+                'Coinbase'
             );
 
             const bybitWs = createWebSocket(
@@ -690,18 +674,8 @@
                                 console.warn('Invalid liquidation data:', liquidationData);
                             }
                         } else if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
-                            const trade = data.data[0];
-                            const volume = parseFloat(trade.v);
-                            const side = trade.S === 'Buy' ? 1 : -1;
-                            const timestamp = Math.floor(parseInt(trade.T) / 1000);
-                            if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                console.log('Processing trade for CVD:', { timestamp, volume, side });
-                                updateCvdCandle(timestamp, volume * side);
-                            } else {
-                                console.warn('Invalid trade data:', trade);
-                            }
-                        } else {
-                            console.log('No liquidation data received yet from Bybit:', data.topic || 'No topic');
+                            // Note: Bybit trade data is still used for CVD in original script, but Coinbase replaces Kraken here
+                            // We’ll rely on Coinbase for price and CVD updates instead
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
@@ -733,7 +707,7 @@
             setTimeout(updateConnectionStatus, 5000);
 
             window.addEventListener('beforeunload', () => {
-                krakenWs.close();
+                coinbaseWs.close();
                 bybitWs.close();
             });
         })();
