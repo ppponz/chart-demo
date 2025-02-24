@@ -51,7 +51,7 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
-            const LIQ_SENSITIVITY = 1000;
+            const LIQ_SENSITIVITY = 100; // Reduced from 1000 to 100
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -379,8 +379,8 @@
                 
                 if (isValidBar(currentLiqCandle)) {
                     console.log('Updating liquidation candle:', { time: barTime, open: currentLiqCandle.open, high: currentLiqCandle.high, low: currentLiqCandle.low, close: liquidationDelta });
-                    liqSeries.setData(liqCandleData); // Refresh full dataset
-                    liqSeries.update(currentLiqCandle); // Update current candle
+                    liqSeries.setData(liqCandleData);
+                    liqSeries.update(currentLiqCandle);
                     elements.liqValue.textContent = `LIQ: ${formatValue(liquidationDelta)}`;
                 }
             }
