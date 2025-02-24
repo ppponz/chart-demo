@@ -35,6 +35,7 @@
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300; // 5 minutes
+            const CVD_BUCKET = 1000; // 1 second
             const MAX_BARS = 2016; // 7 days of 5-min bars
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000; // 1s for faster updates
@@ -62,6 +63,7 @@
             let openInterestData = [];
             let cvdData = [];
             let cvdCumulative = 0;
+            let cvdBuffer = [];
             let lastOiTime = Math.floor(Date.now() / 1000);
             let cvdUpdateCount = 0;
             let bybitMessageCount = 0;
@@ -233,7 +235,9 @@
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
+                    console.log('Setting historical data to chart:', historicalData);
                     priceSeries.setData(historicalData);
+                    console.log('Historical data set, scrolling to real-time');
                     priceChart.timeScale().scrollToRealTime();
                     return true;
                 } catch (error) {
@@ -364,6 +368,32 @@
                 elements.krakenStatus
             );
 
+            function aggregateCVD() {
+                if (cvdBuffer.length === 0) return;
+                const bucketTime = Math.floor(cvdBuffer[0].timestamp / (CVD_BUCKET / 1000)) * (CVD_BUCKET / 1000);
+                const bucketValue = cvdBuffer.reduce((sum, trade) => sum + trade.value, 0);
+                cvdCumulative += bucketValue;
+                const newPoint = { time: bucketTime, value: cvdCumulative };
+                cvdData.push(newPoint);
+                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
+                cvdUpdateCount++;
+                if (cvdUpdateCount % 5 === 0) {
+                    console.log('CVD data points pre-update:', cvdData.slice(-5));
+                    console.log('Live CVD update:', newPoint);
+                }
+                console.log('Raw CVD data before update:', cvdData);
+                try {
+                    cvdSeries.update(newPoint);
+                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
+                    cvdChart.timeScale().scrollToRealTime();
+                } catch (e) {
+                    console.error('CVD live update failed:', e, 'Data:', cvdData);
+                }
+                cvdBuffer = [];
+            }
+
+            setInterval(aggregateCVD, CVD_BUCKET);
+
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
@@ -394,23 +424,7 @@
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                cvdCumulative += volume * side;
-                                const newPoint = { time: timestamp, value: cvdCumulative };
-                                cvdData.push(newPoint);
-                                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
-                                cvdUpdateCount++;
-                                if (cvdUpdateCount % 5 === 0) {
-                                    console.log('CVD data points pre-update:', cvdData.slice(-5));
-                                    console.log('Live CVD update:', newPoint);
-                                }
-                                console.log('Raw CVD data before update:', cvdData);
-                                try {
-                                    cvdSeries.update(newPoint);
-                                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
-                                    cvdChart.timeScale().scrollToRealTime();
-                                } catch (e) {
-                                    console.error('CVD live update failed:', e, 'Data:', cvdData);
-                                }
+                                cvdBuffer.push({ timestamp, value: volume * side });
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -473,6 +487,7 @@
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
+                console.log('Fallback: Setting initial bar:', currentBar);
                 priceSeries.setData([currentBar]);
                 document.title = 'BTC: $0.00';
             }
