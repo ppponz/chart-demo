@@ -8,7 +8,7 @@
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        .chart-wrapper { height: 250px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 230px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -39,7 +39,7 @@
             const TITLE_DELAY = 1000; // 1s debounce for tab title
             const OI_POLL_INTERVAL = 5000; // 5s poll for live OI
             const MAX_RECONNECT_DELAY = 16000; // 16s
-            const OI_INTERVAL = '1m'; // 1-minute OI data for finer granularity
+            const OI_INTERVAL = '1m'; // 1-minute OI data
 
             // DOM elements
             const elements = {
@@ -62,7 +62,6 @@
             let lastLogTime = Date.now();
             let lastBtcPrice = 0;
             let openInterestData = [];
-            let cvd = 0;
             let cvdData = [];
 
             // Utility functions
@@ -154,8 +153,10 @@
             candleSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
             longLiqSeries.setData([{ time: initTime, value: 0 }]);
             shortLiqSeries.setData([{ time: initTime, value: 0 }]);
-            cvdSeries.setData([{ time: initTime, value: 0 }]);
-            oiSeries.setData([{ time: initTime, value: 0 }]);
+            cvdData = [{ time: initTime, value: 0 }];
+            cvdSeries.setData(cvdData);
+            openInterestData = [{ time: initTime, value: 0 }];
+            oiSeries.setData(openInterestData);
             priceChart.timeScale().scrollToRealTime();
             liqChart.timeScale().scrollToRealTime();
             cvdChart.timeScale().scrollToRealTime();
@@ -254,7 +255,10 @@
                     const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&limit=1`;
                     console.log(`Fetching live Bybit OI: ${url}`);
                     const response = await fetch(url);
-                    if (!response.ok) return;
+                    if (!response.ok) {
+                        console.warn(`OI fetch failed with status: ${response.status}`);
+                        return;
+                    }
                     const data = await response.json();
                     console.log('Live Bybit OI response:', data);
                     if (data.retCode === 0 && data.result.list && data.result.list.length > 0) {
@@ -396,12 +400,11 @@
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                cvd += volume * side;
-                                cvdData.push({ time: timestamp, value: cvd });
+                                cvdData.push({ time: timestamp, value: (cvdData[cvdData.length - 1]?.value || 0) + volume * side });
                                 if (cvdData.length > MAX_BARS) cvdData.shift();
                                 console.log('CVD data points:', cvdData.slice(-5));
                                 cvdSeries.setData(cvdData.filter(isValidDataPoint));
-                                console.log('Live CVD update:', { time: timestamp, value: cvd });
+                                console.log('Live CVD update:', { time: timestamp, value: cvdData[cvdData.length - 1].value });
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
