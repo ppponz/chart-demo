@@ -132,9 +132,8 @@
             const COINBASE_OHLC_URL = 'https://api.exchange.coinbase.com/products/BTC-USD/candles';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 60; // 1 minute (60 seconds)
-            const MAX_BARS = 10080; // 7 days of 1-minute bars
+            const MAX_BARS = 300; // Coinbase max: 300 candles = 5 hours
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
@@ -404,36 +403,24 @@
 
             async function fetchHistoricalPriceData() {
                 const endTime = new Date();
-                const startTime = new Date(endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000));
-                const chunkSize = 300; // Coinbase max candles per request
-                const granularity = 60; // 1 minute in seconds
-                const chunkSeconds = chunkSize * granularity; // 300 minutes = 18,000 seconds
-                let currentStart = new Date(startTime);
-                let allBars = [];
-
+                const startTime = new Date(endTime - (5 * 60 * 60 * 1000)); // 5 hours back
                 try {
-                    while (currentStart < endTime) {
-                        const currentEnd = new Date(Math.min(currentStart.getTime() + (chunkSeconds * 1000), endTime.getTime()));
-                        const url = `${COINBASE_OHLC_URL}?granularity=${granularity}&start=${currentStart.toISOString()}&end=${currentEnd.toISOString()}`;
-                        console.log(`Fetching Coinbase OHLC: ${url}`);
-                        const response = await fetch(url);
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const url = `${COINBASE_OHLC_URL}?granularity=60&start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
+                    console.log(`Fetching Coinbase OHLC: ${url}`);
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
 
-                        const data = await response.json();
-                        const bars = data.map(bar => ({
-                            time: bar[0], // [time, low, high, open, close, volume]
-                            open: parseFloat(bar[3]),
-                            high: parseFloat(bar[2]),
-                            low: parseFloat(bar[1]),
-                            close: parseFloat(bar[4])
-                        })).filter(isValidBar);
+                    historicalData = data.map(bar => ({
+                        time: bar[0], // [time, low, high, open, close, volume]
+                        open: parseFloat(bar[3]),
+                        high: parseFloat(bar[2]),
+                        low: parseFloat(bar[1]),
+                        close: parseFloat(bar[4])
+                    })).filter(isValidBar);
 
-                        allBars.push(...bars);
-                        currentStart = new Date(currentEnd.getTime() + (granularity * 1000)); // Move to next chunk
-                        await new Promise(resolve => setTimeout(resolve, 100)); // Rate limit delay
-                    }
-
-                    historicalData = [...new Map(allBars.map(bar => [bar.time, bar])).values()]
+                    console.log(`Fetched ${historicalData.length} valid bars`);
+                    historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
