@@ -8,8 +8,7 @@
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        #price-chart { height: 373px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
-        .chart-wrapper { height: 80px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 150px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -20,7 +19,7 @@
     <div id="loading-overlay"><div id="loading-text">Loading historical data...</div></div>
     <div id="container">
         <div id="header"><h1>BTC-USD Price, Liquidations, CVD, and OI</h1></div>
-        <div id="price-chart"></div>
+        <div id="price-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
@@ -51,10 +50,10 @@
             };
 
             let historicalData = [];
+            let priceData = [];
             let liquidations = [];
             let liquidationDeltaData = [];
             let liquidationDeltaCumulative = 0;
-            let currentBar = null;
             let titleTimeout = null;
             let tradeCount = 0;
             let lastLogTime = Date.now();
@@ -117,18 +116,16 @@
             const priceChart = LightweightCharts.createChart(elements.priceChart, {
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 12 },
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { color: '#2A2A2A' }, horzLines: { color: '#2A2A2A' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
-            const candleSeries = priceChart.addCandlestickSeries({
-                upColor: '#888888',
-                downColor: '#888888',
-                borderColor: '#888888',
-                wickUpColor: '#888888',
-                wickDownColor: '#888888'
+            const priceSeries = priceChart.addLineSeries({
+                color: '#888888',
+                lineWidth: 1,
+                title: 'Price'
             });
 
             const liqChart = LightweightCharts.createChart(elements.liqChart, {
@@ -175,7 +172,8 @@
 
             const initTime = Math.floor(Date.now() / 1000);
             console.log('Setting initial data');
-            candleSeries.setData([{ time: initTime, open: 0, high: 0, low: 0, close: 0 }]);
+            priceData = [{ time: initTime, value: 0 }];
+            priceSeries.setData(priceData);
             liquidationDeltaData = [{ time: initTime, value: 0 }];
             liqDeltaSeries.setData(liquidationDeltaData);
             cvdData = [{ time: initTime, value: 0 }];
@@ -187,7 +185,7 @@
             cvdChart.timeScale().scrollToRealTime();
             oiChart.timeScale().scrollToRealTime();
 
-            async function fetchHistoricalData() {
+            async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
                     const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`;
@@ -233,7 +231,8 @@
                         .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
-                    candleSeries.setData(historicalData);
+                    priceData = historicalData.map(bar => ({ time: bar.time, value: bar.close }));
+                    priceSeries.setData(priceData);
                     priceChart.timeScale().scrollToRealTime();
                     return true;
                 } catch (error) {
@@ -331,31 +330,19 @@
                             return;
                         }
 
-                        const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
-
-                        if (!currentBar || currentBar.time !== barTime) {
-                            if (currentBar && isValidBar(currentBar)) {
-                                console.log('Closing previous bar:', currentBar);
-                                candleSeries.update(currentBar);
-                            }
-                            currentBar = { time: barTime, open: price, high: price, low: price, close: price };
-                        } else {
-                            currentBar.high = Math.max(currentBar.high, price);
-                            currentBar.low = Math.min(currentBar.low, price);
-                            currentBar.close = price;
-                        }
-
-                        console.log('Live trade update:', { price, bar: currentBar });
+                        const newPoint = { time: timestamp, value: price };
+                        priceData.push(newPoint);
+                        if (priceData.length > MAX_BARS) priceData = priceData.slice(-MAX_BARS);
+                        console.log('Live price update:', newPoint);
                         tradeCount++;
                         logTradeCount();
-                        if (isValidBar(currentBar)) {
-                            candleSeries.update(currentBar);
-                            lastBtcPrice = currentBar.close;
-                            const lastHistoricalTime = historicalData[historicalData.length - 1].time;
-                            if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
-                                priceChart.timeScale().scrollToRealTime();
-                            }
+                        try {
+                            priceSeries.update(newPoint);
+                            lastBtcPrice = price;
+                            priceChart.timeScale().scrollToRealTime();
                             debounceTitle(price);
+                        } catch (e) {
+                            console.error('Price live update failed:', e, 'Data:', priceData);
                         }
                     } catch (error) {
                         console.error('Kraken WebSocket processing error:', error);
@@ -460,15 +447,14 @@
             }
 
             console.log('Starting historical data fetch');
-            const historicalSuccess = await fetchHistoricalData();
+            const historicalSuccess = await fetchHistoricalPriceData();
             console.log('Starting OI fetch');
             await fetchBinanceOpenInterest();
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            if (!historicalSuccess && !currentBar) {
+            if (!historicalSuccess) {
                 const now = Math.floor(Date.now() / 1000);
-                const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
-                currentBar = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                candleSeries.setData([currentBar]);
+                priceData = [{ time: now, value: 0 }];
+                priceSeries.setData(priceData);
                 document.title = 'BTC: $0.00';
             }
             elements.loadingOverlay.style.display = 'none';
