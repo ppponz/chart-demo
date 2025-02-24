@@ -8,7 +8,8 @@
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         #header { text-align: center; padding: 10px; background: #161b22; border-radius: 8px; }
         #header h1 { margin: 0; font-size: 1.2em; color: #888888; }
-        .chart-wrapper { height: 230px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        #price-chart { height: 230px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .chart-wrapper { height: 150px; background-color: #161b22; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); overflow: hidden; }
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         #loading-text { color: #00E676; font-size: 1.2em; }
         #kraken-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; background: #161b22; border-radius: 4px; font-size: 0.9em; }
@@ -19,7 +20,7 @@
     <div id="loading-overlay"><div id="loading-text">Loading historical data...</div></div>
     <div id="container">
         <div id="header"><h1>BTC-USD Price, Liquidations, CVD, and OI</h1></div>
-        <div id="price-chart" class="chart-wrapper"></div>
+        <div id="price-chart"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
         <div id="cvd-chart" class="chart-wrapper"></div>
         <div id="oi-chart" class="chart-wrapper"></div>
@@ -106,7 +107,7 @@
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: true, timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
+                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const longLiqSeries = liqChart.addHistogramSeries({ 
@@ -124,7 +125,7 @@
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: true, timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
+                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const cvdSeries = cvdChart.addLineSeries({ 
@@ -139,7 +140,7 @@
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
                 grid: { vertLines: { visible: false }, horzLines: { color: '#2A2A2A' } },
-                timeScale: { visible: true, timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
+                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5 },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const oiSeries = oiChart.addLineSeries({ 
@@ -228,7 +229,7 @@
                 const endTime = Math.floor(Date.now() / 1000) * 1000;
                 const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60 * 1000);
                 try {
-                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&start=${startTime}&end=${endTime}&limit=200`;
+                    const url = `${BYBIT_OI_URL}?category=linear&symbol=BTCUSDT&interval=${OI_INTERVAL}&startTime=${startTime}&endTime=${endTime}&limit=200`;
                     console.log(`Fetching Bybit OI: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -267,11 +268,13 @@
                             time: Math.floor(parseInt(item.timestamp) / 1000),
                             value: parseFloat(item.openInterest || 0)
                         })).filter(isValidDataPoint).reverse();
-                        openInterestData = [...openInterestData, ...newData];
+                        openInterestData = [...new Set([...openInterestData, ...newData].map(JSON.stringify))].map(JSON.parse);
                         if (openInterestData.length > MAX_BARS) openInterestData = openInterestData.slice(-MAX_BARS);
                         console.log('Processed OI data:', openInterestData.slice(-5));
-                        oiSeries.setData(openInterestData);
-                        console.log('Live OI update:', newData.slice(-1));
+                        setTimeout(() => {
+                            oiSeries.setData(openInterestData);
+                            console.log('Live OI update:', newData.slice(-1));
+                        }, 100);
                     } else {
                         console.warn('Empty or invalid OI response:', data);
                     }
@@ -372,7 +375,6 @@
             );
 
             // Bybit WebSocket
-            let bybitReconnectCount = 0;
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
@@ -388,6 +390,7 @@
                             if (Number.isFinite(timestamp) && Number.isFinite(liqValue)) {
                                 liquidations.push({ time: timestamp, qty: liqValue, side });
                                 console.log('Liquidation event:', { time: timestamp, qty: liqValue, side });
+                                
                                 updateLiquidationChart();
                             } else {
                                 console.warn('Invalid liquidation data:', { side, qty, time });
@@ -404,7 +407,7 @@
                                 cvdData.push({ time: timestamp, value: cvdCumulative });
                                 if (cvdData.length > MAX_BARS) cvdData.shift();
                                 console.log('CVD data points:', cvdData.slice(-5));
-                                setTimeout(() => cvdSeries.setData(cvdData.filter(isValidDataPoint)), 100); // Delay to avoid race
+                                setTimeout(() => cvdSeries.setData(cvdData.filter(isValidDataPoint)), 100);
                                 console.log('Live CVD update:', { time: timestamp, value: cvdCumulative });
                             } else {
                                 console.warn('Invalid trade data:', trade);
