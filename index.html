@@ -39,8 +39,6 @@
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 5000;
             const MAX_RECONNECT_DELAY = 16000;
-            const OI_LIVE_RANGE = 24 * 60 * 60 * 1000;
-            const CVD_BUCKET = 5000; // 5 seconds
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -67,7 +65,6 @@
             let lastOiTime = Math.floor(Date.now() / 1000);
             let cvdUpdateCount = 0;
             let bybitMessageCount = 0;
-            let cvdBuffer = [];
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const isValidDataPoint = (point) => point && typeof point === 'object' && Number.isFinite(point.time) && Number.isFinite(point.value) && !isNaN(point.time) && !isNaN(point.value) && point.value !== null;
@@ -245,27 +242,6 @@
                 }
             }
 
-            async function fetchHistoricalCVD() {
-                try {
-                    const now = Math.floor(Date.now() / 1000);
-                    const startTime = now - (HISTORY_DAYS * 24 * 60 * 60);
-                    cvdData = Array.from({ length: 100 }, (_, i) => ({
-                        time: startTime + (i * BAR_INTERVAL),
-                        value: -500 + (i * 5) // Mock -500 to 0
-                    }));
-                    cvdCumulative = cvdData[cvdData.length - 1].value; // 0
-                    console.log(`Mocked ${cvdData.length} CVD points`, cvdData.slice(0, 5));
-                    try {
-                        cvdSeries.setData(cvdData);
-                    } catch (e) {
-                        console.error('CVD mock setData failed:', e, cvdData);
-                    }
-                    cvdChart.timeScale().scrollToRealTime();
-                } catch (error) {
-                    console.error('CVD mock fetch failed:', error);
-                }
-            }
-
             async function fetchBinanceOpenInterest() {
                 try {
                     const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
@@ -389,29 +365,6 @@
                 elements.krakenStatus
             );
 
-            function aggregateCVD() {
-                if (cvdBuffer.length === 0) return;
-                const bucketTime = Math.floor(cvdBuffer[0].timestamp / (CVD_BUCKET / 1000)) * (CVD_BUCKET / 1000);
-                const bucketValue = cvdBuffer.reduce((sum, trade) => sum + trade.value, 0);
-                cvdCumulative += bucketValue;
-                cvdData.push({ time: bucketTime, value: cvdCumulative });
-                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
-                const uniqueCvdData = [...new Map(cvdData.map(item => [item.time, item])).values()];
-                cvdUpdateCount++;
-                if (cvdUpdateCount % 5 === 0) {
-                    console.log('CVD data points pre-setData:', uniqueCvdData.slice(-5));
-                    console.log('Live CVD update:', { time: bucketTime, value: cvdCumulative });
-                }
-                console.log('Raw CVD data before setData:', uniqueCvdData);
-                try {
-                    cvdSeries.setData(uniqueCvdData.filter(isValidDataPoint));
-                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
-                } catch (e) {
-                    console.error('CVD live setData failed:', e, 'Data:', uniqueCvdData);
-                }
-                cvdBuffer = [];
-            }
-
             const bybitWs = createWebSocket(
                 BYBIT_WS_URL,
                 (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
@@ -442,7 +395,23 @@
                             const side = trade.S === 'Buy' ? 1 : -1;
                             const timestamp = Math.floor(parseInt(trade.T) / 1000);
                             if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                                cvdBuffer.push({ timestamp, value: volume * side });
+                                cvdCumulative += volume * side;
+                                const newPoint = { time: timestamp, value: cvdCumulative };
+                                cvdData.push(newPoint);
+                                if (cvdData.length > MAX_BARS) cvdData = cvdData.slice(-MAX_BARS);
+                                cvdUpdateCount++;
+                                if (cvdUpdateCount % 5 === 0) {
+                                    console.log('CVD data points pre-update:', cvdData.slice(-5));
+                                    console.log('Live CVD update:', newPoint);
+                                }
+                                console.log('Raw CVD data before update:', cvdData);
+                                try {
+                                    cvdSeries.update(newPoint);
+                                    cvdSeries.applyOptions({ title: 'CV' }); // Reapply title
+                                    cvdChart.timeScale().scrollToRealTime();
+                                } catch (e) {
+                                    console.error('CVD live update failed:', e, 'Data:', cvdData);
+                                }
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
@@ -454,8 +423,6 @@
                 'Bybit',
                 elements.bybitStatus
             );
-
-            setInterval(aggregateCVD, CVD_BUCKET);
 
             function updateLiquidationChart() {
                 const now = Math.floor(Date.now() / 1000);
@@ -494,8 +461,6 @@
 
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalData();
-            console.log('Starting CVD fetch');
-            await fetchHistoricalCVD();
             console.log('Starting OI fetch');
             await fetchBinanceOpenInterest();
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
