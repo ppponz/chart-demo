@@ -47,6 +47,13 @@
             padding: 4px; 
             font-size: 0.8em; 
             color: #D3D3D3; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        #metrics-table td span.time { 
+            font-size: 0.7em; 
+            color: #888888; 
         }
         #connection-status { 
             padding: 5px 10px; 
@@ -103,9 +110,9 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td id="cvd-data">0</td>
-                            <td id="oi-data">0</td>
-                            <td id="liq-data">0</td>
+                            <td id="cvd-data"><span class="value">0</span><span class="time"></span></td>
+                            <td id="oi-data"><span class="value">0</span><span class="time"></span></td>
+                            <td id="liq-data"><span class="value">0</span><span class="time"></span></td>
                         </tr>
                     </tbody>
                 </table>
@@ -192,6 +199,11 @@
                 if (absValue >= 1000000) return (value / 1000000).toFixed(2) + 'm';
                 if (absValue >= 1000) return (value / 1000).toFixed(2) + 'k';
                 return value.toFixed(2);
+            };
+
+            const formatTime = (timestamp) => {
+                const date = new Date(timestamp * 1000);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             };
 
             const updateColor = (element, value) => {
@@ -362,8 +374,9 @@
                         oiSeries.setData(oiCandleData);
                         oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                         currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
-                        elements.oiData.textContent = formatValue(oiCumulative);
-                        updateColor(elements.oiData, oiCumulative);
+                        elements.oiData.querySelector('.value').textContent = formatValue(oiCumulative);
+                        elements.oiData.querySelector('.time').textContent = formatTime(barTime);
+                        updateColor(elements.oiData.querySelector('.value'), oiCumulative);
                         connectionStatus.binance = true;
                         updateConnectionStatus();
                         console.log('Initialized OI with:', oiCandleData[oiCandleData.length - 1]);
@@ -384,8 +397,9 @@
                     oiSeries.setData(oiCandleData);
                     oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                    elements.oiData.textContent = '0';
-                    updateColor(elements.oiData, 0);
+                    elements.oiData.querySelector('.value').textContent = '0';
+                    elements.oiData.querySelector('.time').textContent = formatTime(barTime);
+                    updateColor(elements.oiData.querySelector('.value'), 0);
                 }
             }
 
@@ -450,6 +464,8 @@
                     isCvdInitialized = true;
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
+                    elements.cvdData.querySelector('.time').textContent = formatTime(currentBar.time);
+                    elements.liqData.querySelector('.time').textContent = formatTime(currentLiqCandle.time);
                     console.log('Initialized currentBar from historical:', currentBar);
                     return true;
                 } catch (error) {
@@ -486,8 +502,9 @@
                 if (isValidBar(currentCvdCandle)) {
                     cvdSeries.update(currentCvdCandle);
                     cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.cvdData.textContent = formatValue(cvdCumulative);
-                    updateColor(elements.cvdData, cvdCumulative);
+                    elements.cvdData.querySelector('.value').textContent = formatValue(cvdCumulative);
+                    elements.cvdData.querySelector('.time').textContent = formatTime(barTime);
+                    updateColor(elements.cvdData.querySelector('.value'), cvdCumulative);
                     console.log('Updated CVD in metrics box:', cvdCumulative);
                 }
             }
@@ -517,8 +534,9 @@
                 if (isValidBar(currentOiCandle)) {
                     oiSeries.update(currentOiCandle);
                     oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.oiData.textContent = formatValue(oiCumulative);
-                    updateColor(elements.oiData, oiCumulative);
+                    elements.oiData.querySelector('.value').textContent = formatValue(oiCumulative);
+                    elements.oiData.querySelector('.time').textContent = formatTime(barTime);
+                    updateColor(elements.oiData.querySelector('.value'), oiCumulative);
                     console.log('Updated OI in metrics box:', oiCumulative);
                 }
             }
@@ -548,8 +566,9 @@
                     liqSeries.setData(liqCandleData);
                     liqSeries.update(currentLiqCandle);
                     liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                    elements.liqData.textContent = formatValue(liquidationDelta);
-                    updateColor(elements.liqData, liquidationDelta);
+                    elements.liqData.querySelector('.value').textContent = formatValue(liquidationDelta);
+                    elements.liqData.querySelector('.time').textContent = formatTime(barTime);
+                    updateColor(elements.liqData.querySelector('.value'), liquidationDelta);
                     console.log('Updated LIQ in metrics box:', liquidationDelta);
                 }
             }
@@ -689,6 +708,8 @@
                 currentBar = { ...historicalData[0] };
                 await fetchInitialOpenInterest();
                 document.title = 'BTC: $0.00';
+                elements.cvdData.querySelector('.time').textContent = formatTime(barTime);
+                elements.liqData.querySelector('.time').textContent = formatTime(barTime);
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
