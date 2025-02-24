@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
-    <script src="/scripts/lightweight-charts.js"></script> <!-- Assuming local v4.0.1 -->
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Arial', sans-serif; background-color: #0d1117; color: #D3D3D3; }
         #container { max-width: 1400px; margin: 10px auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
@@ -38,10 +38,8 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-            const BYBIT_TRADE_URL = 'https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=BTCUSDT&limit=1000';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
-            const LIQ_HISTORY_SECONDS = 24 * 60 * 60; // 1 day
             const BAR_INTERVAL = 300; // 5 minutes for bars
             const CVD_BUCKET = 1000; // 1 second
             const MAX_BARS = 2016; // 7 days of 5-min bars
@@ -256,49 +254,6 @@
                 }
             }
 
-            async function fetchHistoricalLiquidations() {
-                // Bybit doesn't provide direct historical liquidations, so we'll mock or infer from trades
-                try {
-                    const url = BYBIT_TRADE_URL;
-                    console.log(`Fetching Bybit recent trades for liquidation inference: ${url}`);
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-
-                    if (data.retCode !== 0) throw new Error(`Bybit error: ${data.retMsg}`);
-                    const trades = data.result.list || [];
-                    if (!trades.length) throw new Error('No trades returned');
-
-                    // Infer liquidations from large trades (simplified heuristic)
-                    const cutoff = Math.floor(Date.now() / 1000) - LIQ_HISTORY_SECONDS;
-                    liquidations = trades
-                        .filter(trade => {
-                            const ts = Math.floor(parseInt(trade.time) / 1000);
-                            return ts >= cutoff && parseFloat(trade.size) > 10; // Arbitrary threshold for "liquidation-like"
-                        })
-                        .map(trade => ({
-                            time: Math.floor(parseInt(trade.time) / 1000),
-                            qty: parseFloat(trade.size),
-                            side: trade.side // 'Buy' or 'Sell'
-                        }));
-
-                    console.log(`Inferred ${liquidations.length} historical liquidations from trades`, liquidations.slice(-5));
-                    updateLiquidationChart();
-                } catch (error) {
-                    console.error('Bybit historical liquidation inference failed:', error);
-                    // Fallback to mock data if API fails
-                    const now = Math.floor(Date.now() / 1000);
-                    const cutoff = now - LIQ_HISTORY_SECONDS;
-                    liquidations = [
-                        { time: cutoff + 3600, qty: 100, side: 'Buy' },
-                        { time: cutoff + 7200, qty: 50, side: 'Sell' },
-                        { time: cutoff + 10800, qty: 75, side: 'Buy' }
-                    ];
-                    console.log('Using mock historical liquidations:', liquidations);
-                    updateLiquidationChart();
-                }
-            }
-
             async function fetchBinanceOpenInterest() {
                 try {
                     const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
@@ -492,7 +447,7 @@
 
             function updateLiquidationChart() {
                 const now = Math.floor(Date.now() / 1000);
-                const cutoff = now - LIQ_HISTORY_SECONDS; // 1 day
+                const cutoff = now - 24 * 60 * 60;
                 liquidations = liquidations.filter(liq => liq.time >= cutoff && Number.isFinite(liq.time) && Number.isFinite(liq.qty));
                 console.log('Liquidations processed:', liquidations.slice(-5));
 
@@ -502,25 +457,23 @@
                     }, 0);
                     liquidationDeltaData = liquidations.map(liq => ({
                         time: liq.time,
-                        value: liq.side === 'Sell' ? (liquidationDeltaCumulative += liq.qty) : (liquidationDeltaCumulative -= liq.qty)
+                        value: liq.side === 'Sell' ? liquidationDeltaCumulative += liq.qty : liquidationDeltaCumulative -= liq.qty
                     })).filter(isValidDataPoint);
                     console.log('Liquidation delta pre-update:', liquidationDeltaData.slice(-5), 'Cumulative:', liquidationDeltaCumulative);
                     try {
-                        liqDeltaSeries.setData(liquidationDeltaData);
+                        const latestLiq = liquidationDeltaData[liquidationDeltaData.length - 1];
+                        liqDeltaSeries.update(latestLiq);
                         liqChart.timeScale().scrollToRealTime();
                     } catch (e) {
-                        console.error('Liq Delta setData failed:', e, liquidationDeltaData);
+                        console.error('Liq Delta update failed:', e, 'Data:', liquidationDeltaData);
                     }
                 } else {
-                    const mockTime = now - 3600;
-                    liquidations = [
-                        { time: mockTime, qty: 100, side: 'Buy' },
-                        { time: mockTime + 1800, qty: 50, side: 'Sell' }
-                    ];
+                    const mockTime = now;
+                    liquidations.push({ time: mockTime, qty: 100, side: 'Buy' }, { time: mockTime, qty: 50, side: 'Sell' });
                     liquidationDeltaCumulative = 0;
                     liquidationDeltaData = [
                         { time: mockTime, value: -100 },
-                        { time: mockTime + 1800, value: -100 + 50 }
+                        { time: mockTime, value: -100 + 50 }
                     ];
                     liquidationDeltaCumulative = -50;
                     console.log('Mock liquidation delta pre-setData:', liquidationDeltaData, 'Cumulative:', liquidationDeltaCumulative);
@@ -535,8 +488,6 @@
 
             console.log('Starting historical data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
-            console.log('Starting historical liquidation fetch');
-            await fetchHistoricalLiquidations();
             console.log('Starting OI fetch');
             await fetchBinanceOpenInterest();
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
