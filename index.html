@@ -129,7 +129,6 @@
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const BYBIT_LIQ_URL = 'https://api.bybit.com/v5/market/recent-liquidation'; // Corrected endpoint
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300;
             const MAX_BARS = 2016;
@@ -514,7 +513,7 @@
 
             function updateLiqCandle(timestamp, value, side, rawData) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
-                console.log('Raw liquidation data:', rawData); // Log full object
+                console.log('Raw liquidation data:', rawData);
                 const adjustedValue = value * LIQ_SENSITIVITY;
                 const delta = (side === 'Sell' ? adjustedValue : -adjustedValue);
                 
@@ -567,31 +566,6 @@
                     console.error('Binance live OI fetch failed:', error);
                     connectionStatus.binance = false;
                     updateConnectionStatus();
-                }
-            }
-
-            async function fetchBybitLiquidationsFallback() {
-                try {
-                    const url = `${BYBIT_LIQ_URL}?category=linear&symbol=BTCUSDT&limit=50`;
-                    console.log('Fetching Bybit liquidations via REST:', url);
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    console.log('Bybit REST liquidations:', data);
-
-                    if (data.result && data.result.list) {
-                        data.result.list.forEach(liquidation => {
-                            const timestamp = Math.floor(parseInt(liquidation.updatedTime || liquidation.time) / 1000);
-                            const liqValue = parseFloat(liquidation.size || liquidation.qty || 0);
-                            const side = liquidation.side;
-                            if (Number.isFinite(timestamp) && Number.isFinite(liqValue) && side) {
-                                console.log('Processing REST liquidation:', { timestamp, liqValue, side });
-                                updateLiqCandle(timestamp, liqValue, side, liquidation);
-                            }
-                        });
-                    }
-                } catch (error) {
-                    console.error('Bybit REST liquidation fetch failed:', error);
                 }
             }
 
@@ -706,8 +680,7 @@
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
-            fetchBybitLiquidationsFallback(); // Immediate REST call
-            setInterval(fetchBybitLiquidationsFallback, 30000);
+            // Removed fetchBybitLiquidationsFallback calls due to persistent 404
             elements.loadingOverlay.style.display = 'none';
 
             window.addEventListener('beforeunload', () => {
