@@ -97,7 +97,8 @@
                 charts: {},
                 candles: {},
                 pendingUpdates: { price: false, cvd: false, oi: false, liq: false },
-                lastUpdateTime: 0
+                lastUpdateTime: 0,
+                lastSyncTime: 0
             };
 
             // Utility Functions
@@ -157,6 +158,9 @@
                 state.charts.oi = createChart(DOM.oiChart, 100, '');
                 state.charts.liq = createChart(DOM.liqChart, 100, '');
                 state.charts.price.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                    const now = Date.now();
+                    if (now - state.lastSyncTime < 500) return; // Debounce sync by 500ms
+                    state.lastSyncTime = now;
                     const range = state.charts.price.chart.timeScale().getVisibleRange();
                     if (range && state.candles.price && state.candles.price.length > 1 && state.candles.price.every(utils.isValidBar)) {
                         console.log('Syncing time range:', range);
@@ -276,14 +280,14 @@
                             setTimeout(() => {
                                 state.charts.price.chart.timeScale().scrollToRealTime();
                                 console.log('Scrolled to real-time');
-                            }, 500); // Increased delay to ensure chart readiness
+                            }, 500);
                         }
                         console.log('Historical data set:', state.candles.price);
                         return true;
                     } catch (error) {
                         utils.handleError('Historical fetch failed', error);
                         state.connectionStatus.kraken = false;
-                        state.candles.price = [utils.createFallbackBar(Date.now() / 1000)]; // Reset to single bar
+                        state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
                         state.lastBtcPrice = 0;
                         state.charts.price.series.setData(state.candles.price);
 
