@@ -61,13 +61,17 @@
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
             overflow: hidden; 
         }
-        .chart-wrapper { 
+        .meter-wrapper { 
             height: 100px; 
             background-color: #161b22; 
             border-radius: 8px; 
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); 
             overflow: hidden; 
             position: relative; 
+        }
+        canvas { 
+            width: 100%; 
+            height: 100%; 
         }
         #loading-overlay { 
             position: fixed; 
@@ -117,9 +121,9 @@
             <div id="connection-status">Connecting...</div>
         </div>
         <div id="price-chart"></div>
-        <div id="cvd-chart" class="chart-wrapper"></div>
-        <div id="oi-chart" class="chart-wrapper"></div>
-        <div id="liq-chart" class="chart-wrapper"></div>
+        <div id="cvd-meter" class="meter-wrapper"><canvas id="cvd-canvas"></canvas></div>
+        <div id="oi-meter" class="meter-wrapper"><canvas id="oi-canvas"></canvas></div>
+        <div id="liq-meter" class="meter-wrapper"><canvas id="liq-canvas"></canvas></div>
     </div>
     <script>
         (async () => {
@@ -144,11 +148,11 @@
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
-                liqChart: document.getElementById('liq-chart'),
-                cvdChart: document.getElementById('cvd-chart'),
-                oiChart: document.getElementById('oi-chart'),
+                cvdCanvas: document.getElementById('cvd-canvas'),
+                oiCanvas: document.getElementById('oi-canvas'),
+                liqCanvas: document.getElementById('liq-canvas'),
                 loadingOverlay: document.getElementById('loading-overlay'),
-                cvdData: document.getElementById('cvd-data'),
+                cvdData: document.getElementOfId('cvd-data'),
                 oiData: document.getElementById('oi-data'),
                 longLiqData: document.getElementById('long-liq-data'),
                 shortLiqData: document.getElementById('short-liq-data'),
@@ -157,28 +161,29 @@
 
             let historicalData = [];
             let currentBar = null;
-            let liqValue = 0;
-            let cvdValue = 0;
-            let oiValue = 0;
-            let titleTimeout = null;
-            let tradeCount = 0;
-            let lastLogTime = Date.now();
-            let lastBtcPrice = 0;
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
             let longPressure = 0;
             let shortPressure = 0;
             let lastPressureUpdate = Date.now();
-            let connectionStatus = {
-                kraken: false,
-                bybit: false,
-                binance: false
-            };
+            let tradeCount = 0;
+            let lastLogTime = Date.now();
+            let lastBtcPrice = 0;
+            let cvdHistory = [];
+            let oiHistory = [];
+            let liqHistory = [];
+            let cvdMin = 0, cvdMax = 0;
+            let oiMin = 0, oiMax = 0;
+            let liqMin = 0, liqMax = 0;
+
+            const cvdCtx = elements.cvdCanvas.getContext('2d');
+            const oiCtx = elements.oiCanvas.getContext('2d');
+            const liqCtx = elements.liqCanvas.getContext('2d');
 
             const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const debounceTitle = (price) => {
-                if (titleTimeout) clearTimeout(titleTimeout);
+                clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => document.title = `BTC: $${price.toFixed(2)}`, TITLE_DELAY);
             };
             const logTradeCount = () => {
@@ -214,7 +219,6 @@
                 elements.connectionStatus.textContent = allConnected ? 'Connected' : 'Disconnected';
                 elements.connectionStatus.classList.remove('disconnected');
                 if (!allConnected) elements.connectionStatus.classList.add('disconnected');
-                console.log('Connection status updated:', elements.connectionStatus.textContent);
             };
 
             function createWebSocket(url, onOpen, onMessage, label) {
@@ -267,93 +271,93 @@
                 wickDownColor: '#888888'
             });
 
-            // Custom Meter Renderer
-            const MeterRenderer = class {
-                constructor(maxValue) {
-                    this._value = 0;
-                    this._maxValue = maxValue; // Maximum value for scaling
+            function drawMeter(ctx, value, min, max, width, height, label) {
+                ctx.clearRect(0, 0, width, height);
+
+                const centerX = width / 2;
+                const barHeight = height * 0.3;
+                const y = (height - barHeight) / 2;
+                const meterWidth = width * 0.8;
+
+                // Draw background
+                ctx.fillStyle = '#1c2526';
+                ctx.fillRect(centerX - meterWidth / 2, y, meterWidth, barHeight);
+
+                // Draw zero line
+                ctx.strokeStyle = '#555555';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(centerX, y);
+                ctx.lineTo(centerX, y + barHeight);
+                ctx.stroke();
+
+                // Calculate bar width
+                const range = Math.max(Math.abs(min), Math.abs(max));
+                if (range === 0) return; // Avoid division by zero
+                const normalizedValue = value / range;
+                const barWidth = (meterWidth / 2) * Math.abs(normalizedValue);
+
+                // Draw meter bar
+                ctx.fillStyle = value >= 0 ? '#00ffff' : '#ff5555';
+                if (value >= 0) {
+                    ctx.fillRect(centerX, y, barWidth, barHeight);
+                } else {
+                    ctx.fillRect(centerX - barWidth, y, barWidth, barHeight);
                 }
 
-                update(value) {
-                    this._value = Math.max(-this._maxValue, Math.min(this._maxValue, value));
+                // Draw border
+                ctx.strokeStyle = '#888888';
+                ctx.strokeRect(centerX - meterWidth / 2, y, meterWidth, barHeight);
+
+                // Draw label
+                ctx.fillStyle = '#D3D3D3';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(label, centerX, y - 10);
+            }
+
+            function updateMeterSizes() {
+                elements.cvdCanvas.width = elements.cvdCanvas.offsetWidth;
+                elements.cvdCanvas.height = elements.cvdCanvas.offsetHeight;
+                elements.oiCanvas.width = elements.oiCanvas.offsetWidth;
+                elements.oiCanvas.height = elements.oiCanvas.offsetHeight;
+                elements.liqCanvas.width = elements.liqCanvas.offsetWidth;
+                elements.liqCanvas.height = elements.liqCanvas.offsetHeight;
+                updateMeters();
+            }
+
+            function updateMeters() {
+                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar;
+                const priceRange = lastPriceCandle.high - lastPriceCandle.low;
+
+                drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD');
+                drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI');
+                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'LIQ');
+            }
+
+            function updateHistoricalExtremes(type, value) {
+                if (type === 'cvd') {
+                    cvdHistory.push(value);
+                    if (cvdHistory.length > MAX_BARS) cvdHistory.shift();
+                    cvdMin = Math.min(...cvdHistory);
+                    cvdMax = Math.max(...cvdHistory);
+                } else if (type === 'oi') {
+                    oiHistory.push(value);
+                    if (oiHistory.length > MAX_BARS) oiHistory.shift();
+                    oiMin = Math.min(...oiHistory);
+                    oiMax = Math.max(...oiHistory);
+                } else if (type === 'liq') {
+                    liqHistory.push(value);
+                    if (liqHistory.length > MAX_BARS) liqHistory.shift();
+                    liqMin = Math.min(...liqHistory);
+                    liqMax = Math.max(...liqHistory);
                 }
-
-                draw(ctx, pixelRatio, chartWidth, chartHeight) {
-                    ctx.clearRect(0, 0, chartWidth, chartHeight);
-
-                    const centerX = chartWidth / 2;
-                    const height = chartHeight * 0.8;
-                    const width = chartWidth * 0.8;
-                    const barHeight = height * 0.3;
-                    const y = (chartHeight - barHeight) / 2;
-
-                    // Draw background
-                    ctx.fillStyle = '#1c2526';
-                    ctx.fillRect(centerX - width / 2, y, width, barHeight);
-
-                    // Draw zero line
-                    ctx.strokeStyle = '#555555';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(centerX, y);
-                    ctx.lineTo(centerX, y + barHeight);
-                    ctx.stroke();
-
-                    // Draw meter bar
-                    const normalizedValue = this._value / this._maxValue;
-                    const barWidth = (width / 2) * Math.abs(normalizedValue);
-                    ctx.fillStyle = this._value >= 0 ? '#00ffff' : '#ff5555';
-                    if (this._value >= 0) {
-                        ctx.fillRect(centerX, y, barWidth, barHeight);
-                    } else {
-                        ctx.fillRect(centerX - barWidth, y, barWidth, barHeight);
-                    }
-
-                    // Draw border
-                    ctx.strokeStyle = '#888888';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(centerX - width / 2, y, width, barHeight);
-                }
-            };
-
-            const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
-                width: elements.cvdChart.offsetWidth,
-                height: elements.cvdChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
-                timeScale: { visible: false },
-                rightPriceScale: { visible: false },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }
-            });
-            const cvdRenderer = new MeterRenderer(1000000); // Adjust max value as needed
-            cvdChart.subscribeCustomRenderer(() => cvdRenderer);
-
-            const oiChart = LightweightCharts.createChart(elements.oiChart, {
-                width: elements.oiChart.offsetWidth,
-                height: elements.oiChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
-                timeScale: { visible: false },
-                rightPriceScale: { visible: false },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }
-            });
-            const oiRenderer = new MeterRenderer(1000000);
-            oiChart.subscribeCustomRenderer(() => oiRenderer);
-
-            const liqChart = LightweightCharts.createChart(elements.liqChart, {
-                width: elements.liqChart.offsetWidth,
-                height: elements.liqChart.offsetHeight,
-                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3' },
-                timeScale: { visible: false },
-                rightPriceScale: { visible: false },
-                grid: { vertLines: { visible: false }, horzLines: { visible: false } }
-            });
-            const liqRenderer = new MeterRenderer(1000000);
-            liqChart.subscribeCustomRenderer(() => liqRenderer);
+            }
 
             async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
-                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`;
-                    const response = await fetch(url);
+                    const response = await fetch(`${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
 
@@ -375,7 +379,7 @@
 
                     priceSeries.setData(historicalData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
-                    updateMetersFromPrice();
+                    updateMeterSizes();
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
@@ -385,25 +389,12 @@
                 }
             }
 
-            function updateMetersFromPrice() {
-                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar;
-                const priceRange = lastPriceCandle.high - lastPriceCandle.low;
-
-                // Scale the meter values based on price range (example scaling)
-                cvdRenderer.update(cvdCumulative * priceRange / 1000);
-                oiRenderer.update(oiCumulative * priceRange / 1000);
-                liqRenderer.update((longPressure - shortPressure) * priceRange / 1000);
-
-                cvdChart.applyOptions({});
-                oiChart.applyOptions({});
-                liqChart.applyOptions({});
-            }
-
             function updateCvdCandle(timestamp, value) {
                 cvdCumulative += value;
+                updateHistoricalExtremes('cvd', cvdCumulative);
                 elements.cvdData.textContent = formatDollar(cvdCumulative);
                 updateColor(elements.cvdData, cvdCumulative);
-                updateMetersFromPrice();
+                updateMeters();
             }
 
             function updateOiCandle(timestamp, value) {
@@ -412,9 +403,10 @@
                     oiCumulative += delta;
                 }
                 lastOiValue = value;
+                updateHistoricalExtremes('oi', oiCumulative);
                 elements.oiData.textContent = formatDollar(oiCumulative);
                 updateColor(elements.oiData, oiCumulative);
-                updateMetersFromPrice();
+                updateMeters();
             }
 
             function updateLiqCandle(timestamp, value, side) {
@@ -432,9 +424,11 @@
                     shortPressure += adjustedValue;
                 }
 
+                const netPressure = longPressure - shortPressure;
+                updateHistoricalExtremes('liq', netPressure);
                 elements.longLiqData.textContent = formatDollar(longPressure);
                 elements.shortLiqData.textContent = formatDollar(shortPressure);
-                updateMetersFromPrice();
+                updateMeters();
             }
 
             async function fetchBinanceOpenInterestLive() {
@@ -472,7 +466,7 @@
                         if (currentBar && isValidBar(currentBar)) {
                             historicalData.push(currentBar);
                             priceSeries.update(currentBar);
-                            updateMetersFromPrice();
+                            updateMeters();
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
                     } else {
@@ -524,12 +518,14 @@
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
                 priceSeries.setData(historicalData);
                 currentBar = { ...historicalData[0] };
+                updateMeterSizes();
             }
 
             setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             elements.loadingOverlay.style.display = 'none';
             setTimeout(updateConnectionStatus, 5000);
 
+            window.addEventListener('resize', updateMeterSizes);
             window.addEventListener('beforeunload', () => {
                 krakenWs.close();
                 bybitWs.close();
