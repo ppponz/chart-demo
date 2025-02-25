@@ -54,9 +54,9 @@
                     binanceOi: 'https://fapi.binance.com/fapi/v1/openInterest'
                 },
                 time: {
-                    historyDays: 1,
+                    historyDays: 0.5, // Reduced to 12 hours for faster load
                     barInterval: 30,
-                    maxBars: 2880,
+                    maxBars: 1440,
                     titleDelay: 1000,
                     oiPollInterval: 5000,
                     updateThrottle: 100
@@ -75,6 +75,7 @@
                 cvdChart: document.getElementById('cvd-chart'),
                 oiChart: document.getElementById('oi-chart'),
                 loadingOverlay: document.getElementById('loading-overlay'),
+                loadingText: document.getElementById('loading-text'),
                 cvdData: document.getElementById('cvd-data'),
                 oiData: document.getElementById('oi-data'),
                 longLiqData: document.getElementById('long-liq-data'),
@@ -201,6 +202,7 @@
                 fetchHistorical: async () => {
                     const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60);
                     try {
+                        DOM.loadingText.textContent = 'Fetching historical data from Kraken...';
                         console.log('Fetching historical data from Kraken...');
                         const response = await fetch(`${CONFIG.urls.krakenOhlc}?pair=XBTUSD&interval=1&since=${startTime}`);
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -213,6 +215,7 @@
                             console.warn('No valid XXBTZUSD data in Kraken response, using fallback');
                             state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
                         } else {
+                            DOM.loadingText.textContent = 'Processing historical data...';
                             const historicalData = [];
                             for (let i = 0; i < bars.length; i++) {
                                 const [time, openStr, highStr, lowStr, closeStr] = bars[i];
@@ -254,6 +257,7 @@
 
                         state.lastBtcPrice = state.candles.price[state.candles.price.length - 1].close || 0;
                         if (state.candles.price.length > 0 && state.candles.price.every(utils.isValidBar)) {
+                            DOM.loadingText.textContent = 'Setting chart data...';
                             console.log('Setting price data to chart...');
                             state.charts.price.series.setData(state.candles.price);
                             console.log('Price data set successfully');
@@ -261,29 +265,33 @@
                             throw new Error('Invalid or empty price data after processing');
                         }
 
+                        DOM.loadingText.textContent = 'Initializing secondary charts...';
                         state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        state.charts.liq.series.setData(state.candles.liq);
-                        state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
-                        state.candles.liqCurrent = { ...state.candles.liq[state.candles.liq.length - 1] };
-
                         state.candles.cvd = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        state.charts.cvd.series.setData(state.candles.cvd);
-                        state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
+                        state.candles.liqCurrent = { ...state.candles.liq[state.candles.liq.length - 1] };
                         state.candles.cvdCurrent = { ...state.candles.cvd[state.candles.cvd.length - 1] };
 
+                        await Promise.all([
+                            state.charts.liq.series.setData(state.candles.liq),
+                            state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 }))),
+                            state.charts.cvd.series.setData(state.candles.cvd),
+                            state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })))
+                        ]);
+
+                        DOM.loadingText.textContent = 'Fetching open interest...';
                         await dataFetcher.fetchInitialOi();
                         state.candles.priceCurrent = { ...state.candles.price[state.candles.price.length - 1] };
 
                         if (state.candles.price.length > 1) {
+                            DOM.loadingText.textContent = 'Scrolling to real-time...';
                             console.log('Scrolling to real-time...');
                             setTimeout(() => {
                                 state.charts.price.chart.timeScale().scrollToRealTime();
                                 console.log('Scrolled to real-time');
-                            }, 500);
+                            }, 100);
                         }
                         console.log('Historical data set:', state.candles.price);
 
-                        // Enable chart sync after all data is set
                         enableChartSync();
                         return true;
                     } catch (error) {
@@ -294,20 +302,20 @@
                         state.charts.price.series.setData(state.candles.price);
 
                         state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        state.charts.liq.series.setData(state.candles.liq);
-                        state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
-                        state.candles.liqCurrent = { ...state.candles.liq[0] };
-
                         state.candles.cvd = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        state.charts.cvd.series.setData(state.candles.cvd);
-                        state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
+                        await Promise.all([
+                            state.charts.liq.series.setData(state.candles.liq),
+                            state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 }))),
+                            state.charts.cvd.series.setData(state.candles.cvd),
+                            state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })))
+                        ]);
+                        state.candles.liqCurrent = { ...state.candles.liq[0] };
                         state.candles.cvdCurrent = { ...state.candles.cvd[0] };
 
                         state.candles.priceCurrent = { ...state.candles.price[0] };
                         await dataFetcher.fetchInitialOi();
                         console.log('Fallback data set:', state.candles.price);
 
-                        // Enable chart sync after fallback setup
                         enableChartSync();
                         return false;
                     }
@@ -327,8 +335,10 @@
 
                         state.lastOiValue = value;
                         state.candles.oi = state.candles.price.map(bar => ({ time: bar.time, open: state.oiCumulative, high: state.oiCumulative, low: state.oiCumulative, close: state.oiCumulative }));
-                        state.charts.oi.series.setData(state.candles.oi);
-                        state.charts.oi.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
+                        await Promise.all([
+                            state.charts.oi.series.setData(state.candles.oi),
+                            state.charts.oi.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })))
+                        ]);
                         const barTime = Math.floor(Date.now() / 1000 / CONFIG.time.barInterval) * CONFIG.time.barInterval;
                         state.candles.oiCurrent = { time: barTime, open: state.oiCumulative, high: state.oiCumulative, low: state.oiCumulative, close: state.oiCumulative };
                         DOM.oiData.textContent = utils.formatDollar(state.oiCumulative);
@@ -529,3 +539,4 @@
     </script>
 </body>
 </html>
+
