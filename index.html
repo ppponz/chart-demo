@@ -158,7 +158,7 @@
                 state.charts.liq = createChart(DOM.liqChart, 100, '');
                 state.charts.price.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
                     const range = state.charts.price.chart.timeScale().getVisibleRange();
-                    if (range && state.candles.price && state.candles.price.length > 0) {
+                    if (range && state.candles.price && state.candles.price.length > 1) { // Require at least 2 bars for sync
                         Object.keys(state.charts).forEach(key => {
                             if (key !== 'price') state.charts[key].chart.timeScale().setVisibleRange(range);
                         });
@@ -201,18 +201,21 @@
                         const response = await fetch(`${CONFIG.urls.krakenOhlc}?pair=XBTUSD&interval=1&since=${startTime}`);
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
-                        console.log('Kraken API response:', data);
+                        console.log('Kraken API response:', JSON.stringify(data));
 
-                        if (data.error.length) throw new Error(`Kraken API error: ${data.error}`);
-                        const bars = data.result?.['XXBTZUSD'];
+                        if (data.error && data.error.length) throw new Error(`Kraken API error: ${data.error}`);
+                        const bars = data.result && data.result['XXBTZUSD'];
                         if (!bars || !Array.isArray(bars) || bars.length === 0) {
-                            console.warn('No historical data from Kraken, using fallback');
+                            console.warn('No valid XXBTZUSD data in Kraken response, using fallback');
                             state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
                         } else {
                             const historicalData = [];
                             for (let i = 0; i < bars.length; i++) {
                                 const [time, open, high, low, close] = bars[i].map((v, idx) => idx === 0 ? parseInt(v, 10) : parseFloat(v));
-                                if (!Number.isFinite(time) || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) continue;
+                                if (!Number.isFinite(time) || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+                                    console.warn(`Invalid bar at index ${i}:`, bars[i]);
+                                    continue;
+                                }
                                 const nextClose = i + 1 < bars.length ? parseFloat(bars[i + 1][4]) : close;
                                 historicalData.push({ time, open, high: Math.max(open, high), low: Math.min(open, low), close: (open + close) / 2 });
                                 historicalData.push({ time: time + 30, open: (open + close) / 2, high: Math.max(high, close, nextClose), low: Math.min(low, close), close });
@@ -232,14 +235,15 @@
                         state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
                         state.candles.liqCurrent = { ...state.candles.liq[state.candles.liq.length - 1] };
 
-                        await dataFetcher.fetchInitialOi();
                         state.candles.cvd = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                         state.charts.cvd.series.setData(state.candles.cvd);
                         state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
                         state.candles.cvdCurrent = { ...state.candles.cvd[state.candles.cvd.length - 1] };
 
+                        await dataFetcher.fetchInitialOi();
                         state.candles.priceCurrent = { ...state.candles.price[state.candles.price.length - 1] };
-                        if (state.candles.price.length > 1) { // Only scroll if we have more than one bar
+
+                        if (state.candles.price.length > 1) {
                             state.charts.price.chart.timeScale().scrollToRealTime();
                         }
                         console.log('Historical data set:', state.candles.price);
@@ -248,11 +252,19 @@
                         utils.handleError('Historical fetch failed', error);
                         state.connectionStatus.kraken = false;
                         state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
+                        state.lastBtcPrice = 0;
                         state.charts.price.series.setData(state.candles.price);
+
                         state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                         state.charts.liq.series.setData(state.candles.liq);
                         state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
                         state.candles.liqCurrent = { ...state.candles.liq[0] };
+
+                        state.candles.cvd = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                        state.charts.cvd.series.setData(state.candles.cvd);
+                        state.charts.cvd.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
+                        state.candles.cvdCurrent = { ...state.candles.cvd[0] };
+
                         state.candles.priceCurrent = { ...state.candles.price[0] };
                         await dataFetcher.fetchInitialOi();
                         console.log('Fallback data set:', state.candles.price);
@@ -265,9 +277,12 @@
                         const response = await fetch(`${CONFIG.urls.binanceOi}?symbol=BTCUSDT`);
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
-                        console.log('Binance OI response:', data);
+                        console.log('Binance OI response:', JSON.stringify(data));
                         const value = parseFloat(data.openInterest);
-                        if (!Number.isFinite(value)) return;
+                        if (!Number.isFinite(value)) {
+                            console.warn('Invalid OI value, skipping');
+                            return;
+                        }
 
                         state.lastOiValue = value;
                         state.candles.oi = state.candles.price.map(bar => ({ time: bar.time, open: state.oiCumulative, high: state.oiCumulative, low: state.oiCumulative, close: state.oiCumulative }));
@@ -454,9 +469,6 @@
 
             const success = await dataFetcher.fetchHistorical();
             if (!success) {
-                state.candles.cvd = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                state.charts.cvd.series.setData(state.candles.cvd);
-                state.candles.cvdCurrent = { ...state.candles.cvd[0] };
                 document.title = 'BTC: $0.00';
             }
 
