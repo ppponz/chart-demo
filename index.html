@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, Perp CVD, Spot CVD, and OI with VWAP Bands</title>
+    <title>BTC Price, Liquidations, Perp CVD, Spot CVD, and Open Interest with VWAP Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -266,11 +266,11 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const priceSeries = priceChart.addCandlestickSeries({
-                upColor: '#888888',
-                downColor: '#888888',
-                borderColor: '#888888',
-                wickUpColor: '#888888',
-                wickDownColor: '#888888'
+                upColor: '#AAAAAA', // Brightened from #888888
+                downColor: '#AAAAAA', // Brightened from #888888
+                borderColor: '#AAAAAA', // Brightened from #888888
+                wickUpColor: '#AAAAAA', // Brightened from #888888
+                wickDownColor: '#AAAAAA' // Brightened from #888888
             });
 
             const vwapSeries = priceChart.addLineSeries({ color: VWAP_COLOR, lineWidth: 1 });
@@ -351,12 +351,12 @@
                 ctx.fillStyle = '#D3D3D3';
                 ctx.font = '10px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, width / 2, y - 10); // Increased from -8 to -10
+                ctx.fillText(label, width / 2, y - 10);
                 ctx.fillText(dollarValue, width / 2, y - 1);
             }
 
             function normalizedValue(value, min, max, label) {
-                if (label === 'OI') {
+                if (label === 'Open Interest') { // Updated from 'OI'
                     return max > 0 ? value / (max * RANGE_PADDING) : 0;
                 }
                 if (value >= 0) {
@@ -386,12 +386,12 @@
 
                 const spotCvdTargetWidth = (elements.spotCvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(spotCvdValue, spotCvdMin, spotCvdMax, 'Spot CVD')), 1);
                 const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'Perp CVD')), 1);
-                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'OI')), 1);
+                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'Open Interest')), 1); // Updated from 'OI'
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
                 animateBar(spotCvdCtx, spotCvdBarWidth, spotCvdTargetWidth, spotCvdValue, spotCvdMin, spotCvdMax, elements.spotCvdCanvas.width, elements.spotCvdCanvas.height, 'Spot CVD', formatDollar(spotCvdCumulative), (newWidth) => spotCvdBarWidth = newWidth);
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'Perp CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
-                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
+                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'Open Interest', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth); // Updated from 'OI'
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
 
@@ -461,8 +461,10 @@
                         value: parseFloat(bar[5])
                     }));
 
+                    // Seed Spot CVD with 1 day (288 bars) instead of full history
                     spotCvdCumulative = 0;
-                    for (let i = 1; i < historicalData.length; i++) {
+                    const startIndex = Math.max(0, historicalData.length - 288); // Last 288 bars (1 day)
+                    for (let i = startIndex + 1; i < historicalData.length; i++) {
                         const price = historicalData[i].close;
                         const prevPrice = historicalData[i - 1].close;
                         const volume = volumeData[i].value;
