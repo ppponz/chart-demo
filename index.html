@@ -123,7 +123,14 @@
                         state.lastLogTime = now;
                     }
                 },
-                handleError: (msg, error) => console.error(`${msg}:`, error)
+                handleError: (msg, error) => console.error(`${msg}:`, error),
+                createFallbackBar: (timestamp) => ({
+                    time: Math.floor(timestamp / CONFIG.time.barInterval) * CONFIG.time.barInterval,
+                    open: 0,
+                    high: 0,
+                    low: 0,
+                    close: 0
+                })
             };
 
             // Chart Factory
@@ -193,23 +200,26 @@
                         const response = await fetch(`${CONFIG.urls.krakenOhlc}?pair=XBTUSD&interval=1&since=${startTime}`);
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
-                        if (data.error.length) throw new Error(`Kraken error: ${data.error}`);
+                        if (data.error.length) throw new Error(`Kraken API error: ${data.error}`);
 
-                        const bars = data.result['XXBTZUSD'] || [];
-                        if (!bars.length) throw new Error('No bars returned');
-
-                        const historicalData = new Array(bars.length * 2);
-                        for (let i = 0; i < bars.length; i++) {
-                            const [time, open, high, low, close] = bars[i].map((v, idx) => idx === 0 ? parseInt(v, 10) : parseFloat(v));
-                            const nextClose = i + 1 < bars.length ? parseFloat(bars[i + 1][4]) : close;
-                            historicalData[i * 2] = { time, open, high: Math.max(open, high), low: Math.min(open, low), close: (open + close) / 2 };
-                            historicalData[i * 2 + 1] = { time: time + 30, open: (open + close) / 2, high: Math.max(high, close, nextClose), low: Math.min(low, close), close };
+                        const bars = data.result?.['XXBTZUSD'];
+                        if (!bars || !Array.isArray(bars) || !bars.length) {
+                            console.warn('No historical data from Kraken, using fallback');
+                            state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
+                        } else {
+                            const historicalData = new Array(bars.length * 2);
+                            for (let i = 0; i < bars.length; i++) {
+                                const [time, open, high, low, close] = bars[i].map((v, idx) => idx === 0 ? parseInt(v, 10) : parseFloat(v));
+                                const nextClose = i + 1 < bars.length ? parseFloat(bars[i + 1][4]) : close;
+                                historicalData[i * 2] = { time, open, high: Math.max(open, high), low: Math.min(open, low), close: (open + close) / 2 };
+                                historicalData[i * 2 + 1] = { time: time + 30, open: (open + close) / 2, high: Math.max(high, close, nextClose), low: Math.min(low, close), close };
+                            }
+                            state.candles.price = historicalData.filter(utils.isValidBar).slice(-CONFIG.time.maxBars);
                         }
 
-                        state.candles.price = historicalData.filter(utils.isValidBar).slice(-CONFIG.time.maxBars);
-                        state.lastBtcPrice = state.candles.price[state.candles.price.length - 1].close;
-
+                        state.lastBtcPrice = state.candles.price[state.candles.price.length - 1]?.close || 0;
                         state.charts.price.series.setData(state.candles.price);
+
                         state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                         state.charts.liq.series.setData(state.candles.liq);
                         state.charts.liq.zeroLine.setData(state.candles.price.map(bar => ({ time: bar.time, value: 0 })));
@@ -222,11 +232,16 @@
                         state.candles.cvdCurrent = { ...state.candles.cvd[state.candles.cvd.length - 1] };
 
                         state.candles.priceCurrent = { ...state.candles.price[state.candles.price.length - 1] };
-                        state.charts.price.chart.timeScale().scrollToRealTime();
+                        if (state.candles.price.length > 0) {
+                            state.charts.price.chart.timeScale().scrollToRealTime();
+                        }
                         return true;
                     } catch (error) {
                         utils.handleError('Historical fetch failed', error);
                         state.connectionStatus.kraken = false;
+                        state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
+                        state.charts.price.series.setData(state.candles.price);
+                        state.candles.priceCurrent = { ...state.candles.price[0] };
                         return false;
                     }
                 },
@@ -423,17 +438,16 @@
 
             const success = await dataFetcher.fetchHistorical();
             if (!success) {
-                const now = Math.floor(Date.now() / 1000);
-                const barTime = Math.floor(now / CONFIG.time.barInterval) * CONFIG.time.barInterval;
-                state.candles.price = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                state.charts.price.series.setData(state.candles.price);
-                state.candles.liq = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
                 state.charts.liq.series.setData(state.candles.liq);
                 state.candles.liqCurrent = { ...state.candles.liq[0] };
-                state.candles.priceCurrent = { ...state.candles.price[0] };
                 await dataFetcher.fetchInitialOi();
                 document.title = 'BTC: $0.00';
             }
+
+            DOM.cvdData.textContent = utils.formatDollar(state.cvdCumulative);
+            DOM.longLiqData.textContent = utils.formatDollar(state.longPressure);
+            DOM.shortLiqData.textContent = utils.formatDollar(state.shortPressure);
 
             const oiInterval = setInterval(dataFetcher.fetchLiveOi, CONFIG.time.oiPollInterval);
             DOM.loadingOverlay.style.display = 'none';
