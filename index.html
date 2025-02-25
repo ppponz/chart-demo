@@ -134,12 +134,13 @@
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 60;
-            const MAX_BARS = 10080;
+            const MAX_BARS = 2000; // Reduced to 2000 (was 10080, then 5000)
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
             const PRESSURE_DECAY = 0.99;
+            const UPDATE_THROTTLE = 100; // Throttle updates to 100ms
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -486,6 +487,18 @@
                 }
             }
 
+            // Throttling helper
+            function throttle(fn, wait) {
+                let lastCall = 0;
+                return function (...args) {
+                    const now = Date.now();
+                    if (now - lastCall >= wait) {
+                        lastCall = now;
+                        fn(...args);
+                    }
+                };
+            }
+
             function updateCvdCandle(timestamp, value) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 
@@ -502,7 +515,7 @@
                     isCvdInitialized = true;
                 } else if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
                     if (currentCvdCandle && isValidBar(currentCvdCandle)) {
-                        cvdCandleData.push({ ...currentCvdCandle }); // Fresh copy
+                        cvdCandleData.push({ ...currentCvdCandle });
                         if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
                         try {
                             console.log('CVD setData:', cvdCandleData);
@@ -521,8 +534,8 @@
                 
                 if (isValidBar(currentCvdCandle)) {
                     try {
-                        console.log('CVD update:', { ...currentCvdCandle }); // Log exact data
-                        cvdSeries.update({ ...currentCvdCandle }); // Fresh copy
+                        console.log('CVD update:', { ...currentCvdCandle });
+                        throttledCvdUpdate({ ...currentCvdCandle });
                         cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.cvdData.textContent = formatDollar(cvdCumulative);
                         updateColor(elements.cvdData, cvdCumulative);
@@ -535,6 +548,8 @@
                 }
             }
 
+            const throttledCvdUpdate = throttle((candle) => cvdSeries.update(candle), UPDATE_THROTTLE);
+
             function updateOiCandle(timestamp, value) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 
@@ -546,7 +561,7 @@
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
                     if (currentOiCandle && isValidBar(currentOiCandle)) {
-                        oiCandleData.push({ ...currentOiCandle }); // Fresh copy
+                        oiCandleData.push({ ...currentOiCandle });
                         if (oiCandleData.length > MAX_BARS) oiCandleData = oiCandleData.slice(-MAX_BARS);
                         try {
                             console.log('OI setData:', oiCandleData);
@@ -564,8 +579,8 @@
                 
                 if (isValidBar(currentOiCandle)) {
                     try {
-                        console.log('OI update:', { ...currentOiCandle }); // Log exact data
-                        oiSeries.update({ ...currentOiCandle }); // Fresh copy
+                        console.log('OI update:', { ...currentOiCandle });
+                        throttledOiUpdate({ ...currentOiCandle });
                         oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.oiData.textContent = formatDollar(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
@@ -577,6 +592,8 @@
                     console.warn('Skipping invalid OI bar:', currentOiCandle);
                 }
             }
+
+            const throttledOiUpdate = throttle((candle) => oiSeries.update(candle), UPDATE_THROTTLE);
 
             function updateLiqCandle(timestamp, value, side, rawData) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
@@ -599,7 +616,7 @@
 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
-                        liqCandleData.push({ ...currentLiqCandle }); // Fresh copy
+                        liqCandleData.push({ ...currentLiqCandle });
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         try {
                             console.log('LIQ setData:', liqCandleData);
@@ -618,8 +635,8 @@
 
                 if (isValidBar(currentLiqCandle)) {
                     try {
-                        console.log('LIQ update:', { ...currentLiqCandle }); // Log exact data
-                        liqSeries.update({ ...currentLiqCandle }); // Fresh copy
+                        console.log('LIQ update:', { ...currentLiqCandle });
+                        liqSeries.update({ ...currentLiqCandle });
                         liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.longLiqData.textContent = formatDollar(longPressure);
                         elements.shortLiqData.textContent = formatDollar(shortPressure);
