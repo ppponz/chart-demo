@@ -22,7 +22,7 @@
             height: 100vh; 
         }
         #price-chart { 
-            height: 70vh; /* Reduced from 75vh */
+            height: 70vh; 
             background-color: #161b22; 
             border-radius: 4px; 
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
@@ -351,7 +351,7 @@
                 ctx.fillStyle = '#D3D3D3';
                 ctx.font = '10px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, width / 2, y - 8);
+                ctx.fillText(label, width / 2, y - 10); // Increased from -8 to -10
                 ctx.fillText(dollarValue, width / 2, y - 1);
             }
 
