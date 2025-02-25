@@ -97,8 +97,6 @@
                 connectionStatus: { kraken: false, bybit: false, binance: false },
                 charts: {},
                 candles: {},
-                pendingUpdates: { price: false, cvd: false, oi: false, liq: false },
-                lastUpdateTime: 0,
                 lastPriceTimestamp: 0
             };
 
@@ -201,7 +199,7 @@
             // Data Fetching
             const dataFetcher = {
                 fetchHistorical: async () => {
-                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 60;
+                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 120; // Increased to 2 minutes
                     try {
                         DOM.loadingText.textContent = 'Fetching historical data from Kraken...';
                         console.log('Fetching historical data from Kraken...');
@@ -375,7 +373,8 @@
                 if (type === 'price') {
                     if (barTime < state.lastPriceTimestamp) {
                         console.log(`Skipping price update: ${barTime} < ${state.lastPriceTimestamp}`);
-                        return; // Skip updates strictly older than the last bar
+                        state.candles.priceCurrent = current; // Ensure stale data doesn't persist
+                        return;
                     }
                     if (!current || current.time !== barTime) {
                         if (current && utils.isValidBar(current)) {
@@ -392,8 +391,9 @@
                     state.tradeCount++;
                     state.lastPriceTimestamp = barTime;
                     utils.logTradeCount();
-                    state.candles.priceCurrent = current; // Update current before flagging
-                    state.pendingUpdates.price = true;
+                    state.candles.priceCurrent = current;
+                    series.update(current);
+                    setTimeout(() => document.title = `BTC: $${state.lastBtcPrice.toFixed(2)}`, CONFIG.time.titleDelay);
                 } else if (type === 'cvd') {
                     if (!current || current.time !== barTime) {
                         if (!current) {
@@ -411,7 +411,9 @@
                     current.low = Math.min(current.low, state.cvdCumulative);
                     current.close = state.cvdCumulative;
                     state.candles.cvdCurrent = current;
-                    state.pendingUpdates.cvd = true;
+                    series.update(current);
+                    DOM.cvdData.textContent = utils.formatDollar(state.cvdCumulative);
+                    utils.updateColor(DOM.cvdData, state.cvdCumulative);
                 } else if (type === 'oi') {
                     if (state.lastOiValue !== null) state.oiCumulative += value - state.lastOiValue;
                     state.lastOiValue = value;
@@ -427,7 +429,9 @@
                         current.close = state.oiCumulative;
                     }
                     state.candles.oiCurrent = current;
-                    state.pendingUpdates.oi = true;
+                    series.update(current);
+                    DOM.oiData.textContent = utils.formatDollar(state.oiCumulative);
+                    utils.updateColor(DOM.oiData, state.oiCumulative);
                 } else if (type === 'liq') {
                     const now = Date.now();
                     const timeElapsed = (now - state.lastPressureUpdate) / 30000;
@@ -451,41 +455,12 @@
                     current.low = Math.min(current.low, netPressure);
                     current.close = netPressure;
                     state.candles.liqCurrent = current;
-                    state.pendingUpdates.liq = true;
+                    series.update(current);
+                    DOM.longLiqData.textContent = utils.formatDollar(state.longPressure);
+                    DOM.shortLiqData.textContent = utils.formatDollar(state.shortPressure);
                 }
 
                 state.candles[`${type}`] = data;
-                requestAnimationFrame(throttleUpdates);
-            };
-
-            const throttleUpdates = () => {
-                const now = performance.now();
-                if (now - state.lastUpdateTime < CONFIG.time.updateThrottle) return;
-                state.lastUpdateTime = now;
-
-                if (state.pendingUpdates.price && utils.isValidBar(state.candles.priceCurrent)) {
-                    state.charts.price.series.update(state.candles.priceCurrent);
-                    setTimeout(() => document.title = `BTC: $${state.lastBtcPrice.toFixed(2)}`, CONFIG.time.titleDelay);
-                    state.pendingUpdates.price = false;
-                }
-                if (state.pendingUpdates.cvd && utils.isValidBar(state.candles.cvdCurrent)) {
-                    state.charts.cvd.series.update(state.candles.cvdCurrent);
-                    DOM.cvdData.textContent = utils.formatDollar(state.cvdCumulative);
-                    utils.updateColor(DOM.cvdData, state.cvdCumulative);
-                    state.pendingUpdates.cvd = false;
-                }
-                if (state.pendingUpdates.oi && utils.isValidBar(state.candles.oiCurrent)) {
-                    state.charts.oi.series.update(state.candles.oiCurrent);
-                    DOM.oiData.textContent = utils.formatDollar(state.oiCumulative);
-                    utils.updateColor(DOM.oiData, state.oiCumulative);
-                    state.pendingUpdates.oi = false;
-                }
-                if (state.pendingUpdates.liq && utils.isValidBar(state.candles.liqCurrent)) {
-                    state.charts.liq.series.update(state.candles.liqCurrent);
-                    DOM.longLiqData.textContent = utils.formatDollar(state.longPressure);
-                    DOM.shortLiqData.textContent = utils.formatDollar(state.shortPressure);
-                    state.pendingUpdates.liq = false;
-                }
             };
 
             // Main Execution
