@@ -80,7 +80,7 @@
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300; // 5 minutes in seconds
+            const BAR_INTERVAL = 300;
             const MAX_BARS = 2016;
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
@@ -100,8 +100,8 @@
 
             let historicalData = [];
             let currentBar = null;
-            let volumeData = []; // Store volume bars
-            let currentVolume = 0; // Track volume for current bar
+            let volumeData = []; // Preserved for later use
+            let currentVolume = 0; // Preserved for later use
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -209,14 +209,6 @@
                 borderColor: '#888888',
                 wickUpColor: '#888888',
                 wickDownColor: '#888888'
-            });
-
-            // Add Volume Series
-            const volumeSeries = priceChart.addHistogramSeries({
-                color: '#555555', // Gray volume bars
-                priceFormat: { type: 'volume' },
-                priceScaleId: '', // Separate scale from price
-                scaleMargins: { top: 0.8, bottom: 0 } // Position below candlesticks
             });
 
             function animateBar(ctx, currentWidth, targetWidth, value, min, max, width, height, label, dollarValue, callback) {
@@ -365,22 +357,22 @@
                         open: parseFloat(bar[1]),
                         high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
-                        close: parseFloat(bar[4]),
-                        volume: parseFloat(bar[5]) // Historical volume (not used here, but included for completeness)
+                        close: parseFloat(bar[4])
+                        // Volume (bar[5]) not added to historicalData but kept in volumeData
                     })).filter(isValidBar);
+
+                    volumeData = bars.map(bar => ({
+                        time: parseInt(bar[0], 10),
+                        value: parseFloat(bar[5]) // Preserved for later use
+                    }));
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
-                    volumeData = historicalData.map(bar => ({
-                        time: bar.time,
-                        value: bar.volume
-                    }));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
 
                     priceSeries.setData(historicalData);
-                    volumeSeries.setData(volumeData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
-                    currentVolume = 0; // Reset for live updates
+                    currentVolume = 0;
                     updateMeterSizes();
                     debounceTitle(lastBtcPrice);
                     return true;
@@ -459,32 +451,30 @@
 
                     const trade = data[1][0];
                     const price = parseFloat(trade[0]);
-                    const volume = parseFloat(trade[1]); // Volume in BTC
+                    const volume = parseFloat(trade[1]); // Preserved for later use
                     const timestamp = Math.floor(parseFloat(trade[2]));
                     const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
 
                     if (!currentBar || currentBar.time !== barTime) {
                         if (currentBar && isValidBar(currentBar)) {
                             historicalData.push(currentBar);
-                            volumeData.push({ time: currentBar.time, value: currentVolume });
+                            volumeData.push({ time: currentBar.time, value: currentVolume }); // Preserved for later use
                             priceSeries.update(currentBar);
-                            volumeSeries.update({ time: currentBar.time, value: currentVolume });
                             updateMeters();
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
-                        currentVolume = volume; // Start new bar’s volume
+                        currentVolume = volume;
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
                         currentBar.close = price;
-                        currentVolume += volume; // Accumulate volume for current bar
+                        currentVolume += volume;
                     }
 
                     tradeCount++;
                     logTradeCount();
                     if (isValidBar(currentBar)) {
                         priceSeries.update(currentBar);
-                        volumeSeries.update({ time: currentBar.time, value: currentVolume });
                         lastBtcPrice = currentBar.close;
                         debounceTitle(lastBtcPrice);
                     }
@@ -525,9 +515,8 @@
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                volumeData = [{ time: barTime, value: 0 }];
+                volumeData = [{ time: barTime, value: 0 }]; // Preserved for later use
                 priceSeries.setData(historicalData);
-                volumeSeries.setData(volumeData);
                 currentBar = { ...historicalData[0] };
                 currentVolume = 0;
                 updateMeterSizes();
