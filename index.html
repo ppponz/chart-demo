@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, CVD, and OI</title>
+    <title>BTC Price, Liquidations, CVD, and OI with Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -122,6 +122,7 @@
         <div id="oi-chart" class="chart-wrapper"></div>
         <div id="liq-chart" class="chart-wrapper"></div>
     </div>
+    <script src="bands.js"></script> <!-- Include bands.js -->
     <script>
         (async () => {
             if (typeof LightweightCharts === 'undefined') {
@@ -281,6 +282,12 @@
                 wickDownColor: '#888888'
             });
 
+            // Add bands series
+            const t1Series = priceChart.addLineSeries({ color: '#FF450080', lineWidth: 1 }); // Bear color with 50% transparency
+            const t2Series = priceChart.addLineSeries({ color: '#FF450040', lineWidth: 2 }); // Bear color with 75% transparency
+            const b1Series = priceChart.addLineSeries({ color: '#00A0A080', lineWidth: 1 }); // Bull color with 50% transparency
+            const b2Series = priceChart.addLineSeries({ color: '#00A0A040', lineWidth: 2 }); // Bull color with 75% transparency
+
             const cvdChart = LightweightCharts.createChart(elements.cvdChart, {
                 width: elements.cvdChart.offsetWidth,
                 height: elements.cvdChart.offsetHeight,
@@ -421,7 +428,7 @@
                         high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
                         close: parseFloat(bar[4]),
-                        volume: parseFloat(bar[5]) // Added volume
+                        volume: parseFloat(bar[5])
                     })).filter(isValidBar);
 
                     console.log(`Fetched ${historicalData.length} valid bars`);
@@ -440,7 +447,7 @@
                                     high: parseFloat(bar[2]),
                                     low: parseFloat(bar[3]),
                                     close: parseFloat(bar[4]),
-                                    volume: parseFloat(bar[5]) // Added volume
+                                    volume: parseFloat(bar[5])
                                 })).filter(isValidBar));
                             }
                         }
@@ -463,10 +470,18 @@
                     cvdSeries.setData(cvdCandleData);
                     cvdZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     isCvdInitialized = true;
+
+                    // Calculate and plot bands
+                    const bands = calculateBands(historicalData);
+                    t1Series.setData(bands.t1);
+                    t2Series.setData(bands.t2);
+                    b1Series.setData(bands.b1);
+                    b2Series.setData(bands.b2);
+
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
-                    elements.volumeData.textContent = formatValue(currentBar.volume); // Display volume
+                    elements.volumeData.textContent = formatValue(currentBar.volume);
                     elements.cvdData.textContent = formatDollar(cvdCumulative);
                     elements.longLiqData.textContent = formatDollar(longPressure);
                     elements.shortLiqData.textContent = formatDollar(shortPressure);
@@ -623,7 +638,7 @@
 
                         const trade = data[1][0];
                         const price = parseFloat(trade[0]);
-                        const volume = parseFloat(trade[1]); // Added volume
+                        const volume = parseFloat(trade[1]);
                         const timestamp = Math.floor(parseFloat(trade[2]));
                         if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
                             console.warn('Invalid trade data:', trade);
@@ -635,14 +650,22 @@
                         if (!currentBar || currentBar.time !== barTime) {
                             if (currentBar && isValidBar(currentBar)) {
                                 console.log('Closing previous bar:', currentBar);
-                                priceSeries.update(currentBar);
+                                historicalData.push(currentBar);
+                                if (historicalData.length > MAX_BARS) historicalData = historicalData.slice(-MAX_BARS);
+                                priceSeries.setData(historicalData);
+                                // Recalculate bands with updated data
+                                const bands = calculateBands(historicalData);
+                                t1Series.setData(bands.t1);
+                                t2Series.setData(bands.t2);
+                                b1Series.setData(bands.b1);
+                                b2Series.setData(bands.b2);
                             }
                             currentBar = { time: barTime, open: price, high: price, low: price, close: price, volume: volume || 0 };
                         } else {
                             currentBar.high = Math.max(currentBar.high, price);
                             currentBar.low = Math.min(currentBar.low, price);
                             currentBar.close = price;
-                            currentBar.volume = (currentBar.volume || 0) + (volume || 0); // Aggregate volume
+                            currentBar.volume = (currentBar.volume || 0) + (volume || 0);
                         }
 
                         console.log('Live trade update:', { price, volume, bar: currentBar });
@@ -651,7 +674,7 @@
                         if (isValidBar(currentBar)) {
                             priceSeries.update(currentBar);
                             lastBtcPrice = currentBar.close;
-                            elements.volumeData.textContent = formatValue(currentBar.volume); // Update volume display
+                            elements.volumeData.textContent = formatValue(currentBar.volume);
                             const lastHistoricalTime = historicalData[historicalData.length - 1]?.time || 0;
                             if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
                                 priceChart.timeScale().scrollToRealTime();
