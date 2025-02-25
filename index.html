@@ -240,11 +240,12 @@
                                 });
                             }
                             console.log('Processed historical data before filter:', historicalData);
-                            state.candles.price = historicalData.filter(bar => utils.isValidBar(bar) && historicalData.every((b, idx, arr) => idx === 0 || b.time !== arr[idx - 1].time)).slice(-CONFIG.time.maxBars);
+                            state.candles.price = historicalData.filter(utils.isValidBar).slice(-CONFIG.time.maxBars);
                             if (state.candles.price.length === 0) {
                                 console.warn('No valid bars after filtering, using fallback');
                                 state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
                             }
+                            console.log('Filtered historical data:', state.candles.price);
                         }
 
                         state.lastBtcPrice = state.candles.price[state.candles.price.length - 1].close || 0;
@@ -268,7 +269,7 @@
                         state.candles.priceCurrent = { ...state.candles.price[state.candles.price.length - 1] };
 
                         if (state.candles.price.length > 1) {
-                            state.charts.price.chart.timeScale().scrollToRealTime();
+                            setTimeout(() => state.charts.price.chart.timeScale().scrollToRealTime(), 100); // Delay to ensure chart is ready
                         }
                         console.log('Historical data set:', state.candles.price);
                         return true;
