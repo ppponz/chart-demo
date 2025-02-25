@@ -90,9 +90,9 @@
             const RANGE_PADDING = 1.1;
             const ANIMATION_DURATION = 300;
 
-            const VWAP_COLOR = '#FFD700'; // Gold for VWAP line
-            const UPPER_COLOR = '#FF4500'; // Orange for upper bands
-            const LOWER_COLOR = '#00A0A0'; // Teal for lower bands
+            const VWAP_COLOR = '#FFD700'; // Gold
+            const UPPER_COLOR = '#FF4500'; // Orange
+            const LOWER_COLOR = '#00A0A0'; // Teal
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -199,7 +199,9 @@
             }
 
             function calculateVWAPAndBands() {
-                const prices = historicalData.map(bar => bar.close); // Using close for VWAP
+                const prices = historicalData.map(bar => bar.close);
+                const highs = historicalData.map(bar => bar.high);
+                const lows = historicalData.map(bar => bar.low);
                 const volumes = volumeData.map(bar => bar.value);
 
                 let vwapData = [];
@@ -210,7 +212,7 @@
                 // VWAP calculation with daily reset
                 for (let i = 0; i < historicalData.length; i++) {
                     const barTime = historicalData[i].time;
-                    const day = Math.floor(barTime / 86400); // Unix timestamp day (86400s = 1 day)
+                    const day = Math.floor(barTime / 86400);
                     if (currentDay !== day) {
                         dailyPriceVolumeSum = 0;
                         dailyVolumeSum = 0;
@@ -221,27 +223,30 @@
                     vwapData[i] = dailyVolumeSum > 0 ? dailyPriceVolumeSum / dailyVolumeSum : prices[i];
                 }
 
-                // SD calculation over 1440 bars (5 days of 5-min bars)
-                const deviations = prices.map((price, i) => (price - vwapData[i]));
+                // SD calculation using high/low deviations over 288 bars (1 day)
+                const highDeviations = highs.map((high, i) => high - vwapData[i]);
+                const lowDeviations = lows.map((low, i) => low - vwapData[i]);
                 let sdData = [];
-                const period = 1440;
-                for (let i = 0; i < deviations.length; i++) {
+                const period = 288; // 1 day of 5-min bars
+                for (let i = 0; i < historicalData.length; i++) {
                     if (i < period - 1) {
-                        sdData[i] = 0; // Not enough data
+                        sdData[i] = 0;
                     } else {
-                        const slice = deviations.slice(i - period + 1, i + 1);
-                        const mean = slice.reduce((sum, val) => sum + val, 0) / period;
-                        const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (period - 1); // Sample SD
+                        const highSlice = highDeviations.slice(i - period + 1, i + 1);
+                        const lowSlice = lowDeviations.slice(i - period + 1, i + 1);
+                        const combinedSlice = highSlice.concat(lowSlice); // Double the data points for variance
+                        const mean = combinedSlice.reduce((sum, val) => sum + val, 0) / combinedSlice.length;
+                        const variance = combinedSlice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (combinedSlice.length - 1);
                         sdData[i] = Math.sqrt(variance);
                     }
                 }
 
-                // Bands: VWAP ± 1σ, ± 2σ
+                // Bands: VWAP ± 2σ, ± 4σ
                 const vwap = vwapData;
-                const upper1 = vwapData.map((vwap, i) => vwap + sdData[i]);
-                const upper2 = vwapData.map((vwap, i) => vwap + 2 * sdData[i]);
-                const lower1 = vwapData.map((vwap, i) => vwap - sdData[i]);
-                const lower2 = vwapData.map((vwap, i) => vwap - 2 * sdData[i]);
+                const upper1 = vwapData.map((vwap, i) => vwap + 2 * sdData[i]);
+                const upper2 = vwapData.map((vwap, i) => vwap + 4 * sdData[i]);
+                const lower1 = vwapData.map((vwap, i) => vwap - 2 * sdData[i]);
+                const lower2 = vwapData.map((vwap, i) => vwap - 4 * sdData[i]);
 
                 return { vwap, upper1, upper2, lower1, lower2 };
             }
