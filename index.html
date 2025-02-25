@@ -493,6 +493,7 @@
                     currentCvdCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     cvdCandleData = [currentCvdCandle];
                     try {
+                        console.log('CVD init data:', cvdCandleData);
                         cvdSeries.setData(cvdCandleData);
                         cvdZeroLine.setData([{ time: barTime, value: 0 }]);
                     } catch (e) {
@@ -501,9 +502,10 @@
                     isCvdInitialized = true;
                 } else if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
                     if (currentCvdCandle && isValidBar(currentCvdCandle)) {
-                        cvdCandleData.push(currentCvdCandle);
+                        cvdCandleData.push({ ...currentCvdCandle }); // Fresh copy
                         if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
                         try {
+                            console.log('CVD setData:', cvdCandleData);
                             cvdSeries.setData(cvdCandleData);
                         } catch (e) {
                             console.error('CVD setData failed:', e);
@@ -519,7 +521,8 @@
                 
                 if (isValidBar(currentCvdCandle)) {
                     try {
-                        cvdSeries.update(currentCvdCandle);
+                        console.log('CVD update:', { ...currentCvdCandle }); // Log exact data
+                        cvdSeries.update({ ...currentCvdCandle }); // Fresh copy
                         cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.cvdData.textContent = formatDollar(cvdCumulative);
                         updateColor(elements.cvdData, cvdCumulative);
@@ -543,9 +546,10 @@
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
                     if (currentOiCandle && isValidBar(currentOiCandle)) {
-                        oiCandleData.push(currentOiCandle);
+                        oiCandleData.push({ ...currentOiCandle }); // Fresh copy
                         if (oiCandleData.length > MAX_BARS) oiCandleData = oiCandleData.slice(-MAX_BARS);
                         try {
+                            console.log('OI setData:', oiCandleData);
                             oiSeries.setData(oiCandleData);
                         } catch (e) {
                             console.error('OI setData failed:', e);
@@ -560,7 +564,8 @@
                 
                 if (isValidBar(currentOiCandle)) {
                     try {
-                        oiSeries.update(currentOiCandle);
+                        console.log('OI update:', { ...currentOiCandle }); // Log exact data
+                        oiSeries.update({ ...currentOiCandle }); // Fresh copy
                         oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.oiData.textContent = formatDollar(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
@@ -594,9 +599,10 @@
 
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
-                        liqCandleData.push(currentLiqCandle);
+                        liqCandleData.push({ ...currentLiqCandle }); // Fresh copy
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
                         try {
+                            console.log('LIQ setData:', liqCandleData);
                             liqSeries.setData(liqCandleData);
                         } catch (e) {
                             console.error('LIQ setData failed:', e);
@@ -612,7 +618,8 @@
 
                 if (isValidBar(currentLiqCandle)) {
                     try {
-                        liqSeries.update(currentLiqCandle);
+                        console.log('LIQ update:', { ...currentLiqCandle }); // Log exact data
+                        liqSeries.update({ ...currentLiqCandle }); // Fresh copy
                         liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
                         elements.longLiqData.textContent = formatDollar(longPressure);
                         elements.shortLiqData.textContent = formatDollar(shortPressure);
