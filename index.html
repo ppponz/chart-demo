@@ -461,16 +461,8 @@
                         value: parseFloat(bar[5])
                     }));
 
-                    spotCvdCumulative = 0;
-                    const startIndex = Math.max(0, historicalData.length - 6); // Last 6 bars (30 minutes)
-                    for (let i = startIndex + 1; i < historicalData.length; i++) {
-                        const price = historicalData[i].close;
-                        const prevPrice = historicalData[i - 1].close;
-                        const volume = volumeData[i].value;
-                        const delta = (price > prevPrice ? volume : (price < prevPrice ? -volume : 0)) * 20; // Amplify by 20x
-                        spotCvdCumulative += delta;
-                        updateHistoricalExtremes('spotCvd', spotCvdCumulative);
-                    }
+                    spotCvdCumulative = 0; // Start Spot CVD at 0
+                    oiCumulative = 0;      // Start OI at 0
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
@@ -496,13 +488,13 @@
                 let delta;
                 if (lastSpotPrice !== null) {
                     if (price > lastSpotPrice) {
-                        delta = volume * 20; // Amplify by 20x
+                        delta = volume;
                         lastSpotDirection = 1;
                     } else if (price < lastSpotPrice) {
-                        delta = -volume * 20; // Amplify by 20x
+                        delta = -volume;
                         lastSpotDirection = -1;
                     } else {
-                        delta = volume * lastSpotDirection * 20; // Amplify by 20x
+                        delta = volume * lastSpotDirection;
                     }
                     spotCvdCumulative += delta;
                     updateHistoricalExtremes('spotCvd', spotCvdCumulative);
@@ -520,11 +512,11 @@
 
             function updateOiCandle(timestamp, value) {
                 if (lastOiValue !== null) {
-                    const delta = value - lastOiValue;
+                    const delta = value - lastOiValue; // Cumulative delta of OI changes
                     oiCumulative += delta;
+                    updateHistoricalExtremes('oi', oiCumulative);
                 }
                 lastOiValue = value;
-                updateHistoricalExtremes('oi', oiCumulative);
                 updateMeters();
                 debounceTitle(lastBtcPrice);
             }
