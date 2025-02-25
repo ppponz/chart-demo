@@ -271,7 +271,7 @@
                 ctx.stroke();
 
                 // Draw meter bar with dynamic color intensity
-                const intensity = Math.min(Math.abs(normalizedValue(value, min, max)), 1);
+                const intensity = Math.min(Math.abs(normalizedValue(value, min, max, label)), 1);
                 ctx.fillStyle = value >= 0 ? `rgba(0, 255, 255, ${0.5 + intensity * 0.5})` : `rgba(255, 85, 85, ${0.5 + intensity * 0.5})`;
                 if (value >= 0) {
                     ctx.fillRect(centerX, y, barWidth, barHeight);
@@ -291,7 +291,7 @@
                 ctx.fillText(dollarValue, width / 2, y - 2);
             }
 
-            function normalizedValue(value, min, max) {
+            function normalizedValue(value, min, max, label) {
                 if (label === 'OI') {
                     return max > 0 ? value / (max * RANGE_PADDING) : 0; // OI is always positive
                 }
@@ -317,9 +317,9 @@
                 const oiValue = oiCumulative;
                 const liqValue = longPressure - shortPressure;
 
-                const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax)), 1);
+                const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'CVD')), 1);
                 const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'OI')), 1);
-                const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax)), 1);
+                const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
                 animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
