@@ -462,7 +462,7 @@
                     }));
 
                     spotCvdCumulative = 0;
-                    const startIndex = Math.max(0, historicalData.length - 12); // Last 12 bars (1 hour)
+                    const startIndex = Math.max(0, historicalData.length - 6); // Last 6 bars (30 minutes)
                     for (let i = startIndex + 1; i < historicalData.length; i++) {
                         const price = historicalData[i].close;
                         const prevPrice = historicalData[i - 1].close;
