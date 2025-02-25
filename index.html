@@ -97,7 +97,8 @@
                 connectionStatus: { kraken: false, bybit: false, binance: false },
                 charts: {},
                 candles: {},
-                lastPriceTimestamp: 0
+                lastPriceTimestamp: 0,
+                lastCvdTimestamp: 0 // Added for CVD tracking
             };
 
             // Utility Functions
@@ -199,7 +200,7 @@
             // Data Fetching
             const dataFetcher = {
                 fetchHistorical: async () => {
-                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 120; // Increased to 2 minutes
+                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 120;
                     try {
                         DOM.loadingText.textContent = 'Fetching historical data from Kraken...';
                         console.log('Fetching historical data from Kraken...');
@@ -253,6 +254,7 @@
                             }
                             console.log('Filtered historical data:', state.candles.price);
                             state.lastPriceTimestamp = state.candles.price[state.candles.price.length - 1].time;
+                            state.lastCvdTimestamp = state.lastPriceTimestamp; // Sync initial CVD timestamp
                         }
 
                         state.lastBtcPrice = state.candles.price[state.candles.price.length - 1].close || 0;
@@ -300,6 +302,7 @@
                         state.candles.price = [utils.createFallbackBar(Date.now() / 1000)];
                         state.lastBtcPrice = 0;
                         state.lastPriceTimestamp = state.candles.price[0].time;
+                        state.lastCvdTimestamp = state.lastPriceTimestamp;
                         state.charts.price.series.setData(state.candles.price);
 
                         state.candles.liq = state.candles.price.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
@@ -373,7 +376,7 @@
                 if (type === 'price') {
                     if (barTime < state.lastPriceTimestamp) {
                         console.log(`Skipping price update: ${barTime} < ${state.lastPriceTimestamp}`);
-                        state.candles.priceCurrent = current; // Ensure stale data doesn't persist
+                        state.candles.priceCurrent = current;
                         return;
                     }
                     if (!current || current.time !== barTime) {
@@ -395,12 +398,13 @@
                     series.update(current);
                     setTimeout(() => document.title = `BTC: $${state.lastBtcPrice.toFixed(2)}`, CONFIG.time.titleDelay);
                 } else if (type === 'cvd') {
+                    if (barTime < state.lastCvdTimestamp) {
+                        console.log(`Skipping CVD update: ${barTime} < ${state.lastCvdTimestamp}`);
+                        state.candles.cvdCurrent = current;
+                        return;
+                    }
                     if (!current || current.time !== barTime) {
-                        if (!current) {
-                            current = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
-                            data = [current];
-                            series.setData(data);
-                        } else if (utils.isValidBar(current)) {
+                        if (current && utils.isValidBar(current)) {
                             data.push(current);
                             if (data.length > CONFIG.time.maxBars) data.shift();
                         }
@@ -411,6 +415,7 @@
                     current.low = Math.min(current.low, state.cvdCumulative);
                     current.close = state.cvdCumulative;
                     state.candles.cvdCurrent = current;
+                    state.lastCvdTimestamp = barTime;
                     series.update(current);
                     DOM.cvdData.textContent = utils.formatDollar(state.cvdCumulative);
                     utils.updateColor(DOM.cvdData, state.cvdCumulative);
