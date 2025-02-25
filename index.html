@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <title>BTC Price, Liquidations, CVD, and OI</title>
-    <script src="./lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
             margin: 0; 
@@ -756,7 +756,6 @@
             console.log('Starting historical price data fetch');
             const historicalSuccess = await fetchHistoricalPriceData();
             if (!historicalSuccess) {
-                console.warn('Historical data fetch failed, using fallback');
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
