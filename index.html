@@ -132,14 +132,14 @@
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300;
-            const MAX_BARS = 2016;
+            const HISTORY_DAYS = 7; // 1 week (7 days)
+            const BAR_INTERVAL = 60; // 1 minute (60 seconds)
+            const MAX_BARS = 10080; // 7 days of 1-minute bars (7 * 24 * 60)
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
-            const PRESSURE_DECAY = 0.95; // Decay per minute
+            const PRESSURE_DECAY = 0.99; // Adjusted for 1-minute intervals
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -260,7 +260,7 @@
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
+                timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const priceSeries = priceChart.addCandlestickSeries({
@@ -276,7 +276,7 @@
                 height: elements.cvdChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
+                timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
             const cvdSeries = cvdChart.addCandlestickSeries({
@@ -300,7 +300,7 @@
                 height: elements.oiChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
+                timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
             const oiSeries = oiChart.addCandlestickSeries({
@@ -324,7 +324,7 @@
                 height: elements.liqChart.offsetHeight,
                 layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                 grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
+                timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
                 rightPriceScale: { visible: false }
             });
             const liqSeries = liqChart.addCandlestickSeries({
@@ -405,7 +405,7 @@
             async function fetchHistoricalPriceData() {
                 const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
-                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`;
+                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${startTime}`;
                     console.log(`Fetching Kraken OHLC: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -426,7 +426,7 @@
                     console.log(`Fetched ${historicalData.length} valid bars`);
                     if (historicalData.length < MAX_BARS) {
                         const lastTime = historicalData[historicalData.length - 1].time;
-                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${lastTime + BAR_INTERVAL}`;
+                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${lastTime + BAR_INTERVAL}`;
                         console.log(`Fetching additional Kraken OHLC: ${secondUrl}`);
                         const secondResponse = await fetch(secondUrl);
                         if (secondResponse.ok) {
