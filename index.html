@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, CVD, and OI with VWMA Bands</title>
+    <title>BTC Price, Liquidations, CVD, and OI with VWAP Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -90,8 +90,9 @@
             const RANGE_PADDING = 1.1;
             const ANIMATION_DURATION = 300;
 
-            const BEAR_COLOR = '#FF4500';
-            const BULL_COLOR = '#00A0A0';
+            const VWAP_COLOR = '#FFD700'; // Gold for VWAP line
+            const UPPER_COLOR = '#FF4500'; // Orange for upper bands
+            const LOWER_COLOR = '#00A0A0'; // Teal for lower bands
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -197,58 +198,52 @@
                 return ws;
             }
 
-            function calculateEMA(data, period) {
-                const k = 2 / (period + 1);
-                let ema = [];
-                ema[0] = data[0];
-                for (let i = 1; i < data.length; i++) {
-                    ema[i] = data[i] * k + ema[i - 1] * (1 - k);
-                }
-                return ema;
-            }
-
-            function calculateStDev(data, period) {
-                let stDev = [];
-                for (let i = 0; i < data.length; i++) {
-                    if (i < period - 1) {
-                        stDev[i] = 0; // Not enough data
-                    } else {
-                        const slice = data.slice(i - period + 1, i + 1);
-                        const mean = slice.reduce((sum, val) => sum + val, 0) / period;
-                        const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (period - 1); // Sample SD (n-1)
-                        stDev[i] = Math.sqrt(variance);
-                    }
-                }
-                return stDev;
-            }
-
-            function calculateVWMABands() {
-                const highPrices = historicalData.map(bar => bar.high);
-                const lowPrices = historicalData.map(bar => bar.low);
+            function calculateVWAPAndBands() {
+                const prices = historicalData.map(bar => bar.close); // Using close for VWAP
                 const volumes = volumeData.map(bar => bar.value);
 
-                const priceVolumeHigh = highPrices.map((price, i) => price * volumes[i]);
-                const priceVolumeLow = lowPrices.map((price, i) => price * volumes[i]);
+                let vwapData = [];
+                let dailyPriceVolumeSum = 0;
+                let dailyVolumeSum = 0;
+                let currentDay = null;
 
-                const volumeEma = calculateEMA(volumes, 180);
-                const priceVolumeHighEma = calculateEMA(priceVolumeHigh, 180);
-                const priceVolumeLowEma = calculateEMA(priceVolumeLow, 180);
+                // VWAP calculation with daily reset
+                for (let i = 0; i < historicalData.length; i++) {
+                    const barTime = historicalData[i].time;
+                    const day = Math.floor(barTime / 86400); // Unix timestamp day (86400s = 1 day)
+                    if (currentDay !== day) {
+                        dailyPriceVolumeSum = 0;
+                        dailyVolumeSum = 0;
+                        currentDay = day;
+                    }
+                    dailyPriceVolumeSum += prices[i] * volumes[i];
+                    dailyVolumeSum += volumes[i];
+                    vwapData[i] = dailyVolumeSum > 0 ? dailyPriceVolumeSum / dailyVolumeSum : prices[i];
+                }
 
-                const ma1 = priceVolumeHighEma.map((pv, i) => pv / volumeEma[i]);
-                const ma2 = priceVolumeLowEma.map((pv, i) => pv / volumeEma[i]);
+                // SD calculation over 1440 bars (5 days of 5-min bars)
+                const deviations = prices.map((price, i) => (price - vwapData[i]));
+                let sdData = [];
+                const period = 1440;
+                for (let i = 0; i < deviations.length; i++) {
+                    if (i < period - 1) {
+                        sdData[i] = 0; // Not enough data
+                    } else {
+                        const slice = deviations.slice(i - period + 1, i + 1);
+                        const mean = slice.reduce((sum, val) => sum + val, 0) / period;
+                        const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (period - 1); // Sample SD
+                        sdData[i] = Math.sqrt(variance);
+                    }
+                }
 
-                const p1 = highPrices.map((high, i) => (high - ma1[i]) / ma1[i]);
-                const p2 = lowPrices.map((low, i) => (low - ma2[i]) / ma2[i]);
+                // Bands: VWAP ± 1σ, ± 2σ
+                const vwap = vwapData;
+                const upper1 = vwapData.map((vwap, i) => vwap + sdData[i]);
+                const upper2 = vwapData.map((vwap, i) => vwap + 2 * sdData[i]);
+                const lower1 = vwapData.map((vwap, i) => vwap - sdData[i]);
+                const lower2 = vwapData.map((vwap, i) => vwap - 2 * sdData[i]);
 
-                const sd10 = calculateStDev(p1, 1440);
-                const sd20 = calculateStDev(p2, 1440);
-
-                const t1 = ma1.map((ma, i) => ma * (1 + sd10[i] * 2.25));
-                const t2 = ma1.map((ma, i) => ma * (1 + sd10[i] * 4.25));
-                const b1 = ma2.map((ma, i) => ma * (1 - sd20[i] * 2.25));
-                const b2 = ma2.map((ma, i) => ma * (1 - sd20[i] * 4.25));
-
-                return { t1, t2, b1, b2 };
+                return { vwap, upper1, upper2, lower1, lower2 };
             }
 
             const priceChart = LightweightCharts.createChart(elements.priceChart, {
@@ -268,10 +263,11 @@
                 wickDownColor: '#888888'
             });
 
-            const t1Series = priceChart.addLineSeries({ color: BEAR_COLOR, lineWidth: 1 });
-            const t2Series = priceChart.addLineSeries({ color: BEAR_COLOR, lineWidth: 2 });
-            const b1Series = priceChart.addLineSeries({ color: BULL_COLOR, lineWidth: 1 });
-            const b2Series = priceChart.addLineSeries({ color: BULL_COLOR, lineWidth: 2 });
+            const vwapSeries = priceChart.addLineSeries({ color: VWAP_COLOR, lineWidth: 1 });
+            const upper1Series = priceChart.addLineSeries({ color: UPPER_COLOR, lineWidth: 1 });
+            const upper2Series = priceChart.addLineSeries({ color: UPPER_COLOR, lineWidth: 2 });
+            const lower1Series = priceChart.addLineSeries({ color: LOWER_COLOR, lineWidth: 1 });
+            const lower2Series = priceChart.addLineSeries({ color: LOWER_COLOR, lineWidth: 2 });
 
             function animateBar(ctx, currentWidth, targetWidth, value, min, max, width, height, label, dollarValue, callback) {
                 const startTime = performance.now();
@@ -385,19 +381,21 @@
             }
 
             function updateBands() {
-                const bands = calculateVWMABands();
+                const bands = calculateVWAPAndBands();
                 const bandData = historicalData.map((bar, i) => ({
                     time: bar.time,
-                    t1: bands.t1[i],
-                    t2: bands.t2[i],
-                    b1: bands.b1[i],
-                    b2: bands.b2[i]
+                    vwap: bands.vwap[i],
+                    upper1: bands.upper1[i],
+                    upper2: bands.upper2[i],
+                    lower1: bands.lower1[i],
+                    lower2: bands.lower2[i]
                 }));
 
-                t1Series.setData(bandData.map(d => ({ time: d.time, value: d.t1 })));
-                t2Series.setData(bandData.map(d => ({ time: d.time, value: d.t2 })));
-                b1Series.setData(bandData.map(d => ({ time: d.time, value: d.b1 })));
-                b2Series.setData(bandData.map(d => ({ time: d.time, value: d.b2 })));
+                vwapSeries.setData(bandData.map(d => ({ time: d.time, value: d.vwap })));
+                upper1Series.setData(bandData.map(d => ({ time: d.time, value: d.upper1 })));
+                upper2Series.setData(bandData.map(d => ({ time: d.time, value: d.upper2 })));
+                lower1Series.setData(bandData.map(d => ({ time: d.time, value: d.lower1 })));
+                lower2Series.setData(bandData.map(d => ({ time: d.time, value: d.lower2 })));
             }
 
             function updateHistoricalExtremes(type, value) {
