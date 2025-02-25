@@ -163,7 +163,7 @@
             const formatDollar = (btcValue) => {
                 const actualBtc = btcValue / LIQ_SENSITIVITY;
                 const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000;
-                return '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                return (btcValue < 0 ? '-' : '') + '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); // Preserve sign
             };
 
             const updateConnectionStatus = () => {
@@ -461,7 +461,6 @@
                         value: parseFloat(bar[5])
                     }));
 
-                    // Seed Spot CVD with 4 hours (48 bars)
                     spotCvdCumulative = 0;
                     const startIndex = Math.max(0, historicalData.length - 48); // Last 48 bars (4 hours)
                     for (let i = startIndex + 1; i < historicalData.length; i++) {
