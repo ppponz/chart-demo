@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, Perp CVD, Spot CVD, and Open Interest with VWAP Bands</title>
+    <title>BTC Price, Liquidations, Perp CVD, Spot CVD, and Futures CVD with VWAP Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -79,7 +79,6 @@
             const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-            const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
             const BAR_INTERVAL = 300;
             const MAX_BARS = 2016;
@@ -162,16 +161,23 @@
 
             const formatDollar = (btcValue) => {
                 const actualBtc = btcValue / LIQ_SENSITIVITY;
-                const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000;
-                return (btcValue < 0 ? '-' : '') + '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                let dollarValue = Math.round((actualBtc * lastBtcPrice) / 500) * 500; // Round to nearest 500
+                const absDollarValue = Math.abs(dollarValue);
+                if (absDollarValue >= 1000000) {
+                    return (btcValue < 0 ? '-' : '') + (absDollarValue / 1000000).toFixed(2) + 'M';
+                } else if (absDollarValue >= 1000) {
+                    return (btcValue < 0 ? '-' : '') + (absDollarValue / 1000).toFixed(2) + 'K';
+                } else {
+                    return (btcValue < 0 ? '-' : '') + '$' + absDollarValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                }
             };
 
             const updateConnectionStatus = () => {
-                const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
+                const allConnected = connectionStatus.kraken && connectionStatus.bybit;
                 console.log('Connection Status:', allConnected ? 'Connected' : 'Disconnected');
             };
 
-            let connectionStatus = { kraken: false, bybit: false, binance: false };
+            let connectionStatus = { kraken: false, bybit: false };
 
             function createWebSocket(url, onOpen, onMessage, label) {
                 let ws = new WebSocket(url);
@@ -356,7 +362,7 @@
             }
 
             function normalizedValue(value, min, max, label) {
-                if (label === 'Open Interest') {
+                if (label === 'Futures CVD') {
                     return max > 0 ? value / (max * RANGE_PADDING) : 0;
                 }
                 if (value >= 0) {
@@ -386,12 +392,12 @@
 
                 const spotCvdTargetWidth = (elements.spotCvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(spotCvdValue, spotCvdMin, spotCvdMax, 'Spot CVD')), 1);
                 const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'Perp CVD')), 1);
-                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'Open Interest')), 1);
+                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'Futures CVD')), 1);
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
                 animateBar(spotCvdCtx, spotCvdBarWidth, spotCvdTargetWidth, spotCvdValue, spotCvdMin, spotCvdMax, elements.spotCvdCanvas.width, elements.spotCvdCanvas.height, 'Spot CVD', formatDollar(spotCvdCumulative), (newWidth) => spotCvdBarWidth = newWidth);
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'Perp CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
-                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'Open Interest', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
+                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'Futures CVD', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
 
@@ -462,7 +468,7 @@
                     }));
 
                     spotCvdCumulative = 0; // Start Spot CVD at 0
-                    oiCumulative = 0;      // Start OI at 0
+                    oiCumulative = 0;      // Start Futures CVD at 0
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
@@ -511,12 +517,8 @@
             }
 
             function updateOiCandle(timestamp, value) {
-                if (lastOiValue !== null) {
-                    const delta = value - lastOiValue; // Cumulative delta of OI changes
-                    oiCumulative += delta;
-                    updateHistoricalExtremes('oi', oiCumulative);
-                }
-                lastOiValue = value;
+                oiCumulative += value;
+                updateHistoricalExtremes('oi', oiCumulative);
                 updateMeters();
                 debounceTitle(lastBtcPrice);
             }
@@ -540,25 +542,6 @@
                 updateHistoricalExtremes('liq', netPressure);
                 updateMeters();
                 debounceTitle(lastBtcPrice);
-            }
-
-            async function fetchBinanceOpenInterestLive() {
-                try {
-                    const response = await fetch(`${BINANCE_OI_URL}?symbol=BTCUSDT`);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    const now = Math.floor(Date.now() / 1000);
-                    const value = parseFloat(data.openInterest);
-                    if (Number.isFinite(value)) {
-                        connectionStatus.binance = true;
-                        updateConnectionStatus();
-                        updateOiCandle(now, value);
-                    }
-                } catch (error) {
-                    console.error('Binance live OI fetch failed:', error);
-                    connectionStatus.binance = false;
-                    updateConnectionStatus();
-                }
             }
 
             const krakenWs = createWebSocket(
@@ -623,7 +606,8 @@
                         const side = trade.S === 'Buy' ? 1 : -1;
                         const timestamp = Math.floor(parseInt(trade.T) / 1000);
                         if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
-                            updateCvdCandle(timestamp, volume * side);
+                            updateCvdCandle(timestamp, volume * side); // Perp CVD
+                            updateOiCandle(timestamp, volume * side);  // Futures CVD
                         }
                     }
                 },
@@ -647,7 +631,6 @@
                 debounceTitle(0);
             }
 
-            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
             elements.loadingOverlay.style.display = 'none';
             setTimeout(updateConnectionStatus, 5000);
 
