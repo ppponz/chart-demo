@@ -22,7 +22,7 @@
             height: 100vh; 
         }
         #price-chart { 
-            height: 75vh; 
+            height: 70vh; /* Reduced from 75vh */
             background-color: #161b22; 
             border-radius: 4px; 
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
@@ -112,6 +112,7 @@
             let spotCvdHistory = [];
             let spotCvdMin = 0, spotCvdMax = 0;
             let lastSpotPrice = null;
+            let lastSpotDirection = 0;
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -348,10 +349,10 @@
                 ctx.strokeRect(0, y, meterWidth, barHeight);
 
                 ctx.fillStyle = '#D3D3D3';
-                ctx.font = '10px Arial'; // Reduced from 12px to 10px
+                ctx.font = '10px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, width / 2, y - 8); // Adjusted from -10 to -8
-                ctx.fillText(dollarValue, width / 2, y - 1); // Adjusted from -2 to -1
+                ctx.fillText(label, width / 2, y - 8);
+                ctx.fillText(dollarValue, width / 2, y - 1);
             }
 
             function normalizedValue(value, min, max, label) {
@@ -384,12 +385,12 @@
                 const liqValue = longPressure - shortPressure;
 
                 const spotCvdTargetWidth = (elements.spotCvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(spotCvdValue, spotCvdMin, spotCvdMax, 'Spot CVD')), 1);
-                const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'Perp CVD')), 1); // Renamed to 'Perp CVD'
+                const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'Perp CVD')), 1);
                 const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'OI')), 1);
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
                 animateBar(spotCvdCtx, spotCvdBarWidth, spotCvdTargetWidth, spotCvdValue, spotCvdMin, spotCvdMax, elements.spotCvdCanvas.width, elements.spotCvdCanvas.height, 'Spot CVD', formatDollar(spotCvdCumulative), (newWidth) => spotCvdBarWidth = newWidth);
-                animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'Perp CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth); // Renamed to 'Perp CVD'
+                animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'Perp CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
                 animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
@@ -460,6 +461,16 @@
                         value: parseFloat(bar[5])
                     }));
 
+                    spotCvdCumulative = 0;
+                    for (let i = 1; i < historicalData.length; i++) {
+                        const price = historicalData[i].close;
+                        const prevPrice = historicalData[i - 1].close;
+                        const volume = volumeData[i].value;
+                        const delta = price > prevPrice ? volume : (price < prevPrice ? -volume : 0);
+                        spotCvdCumulative += delta;
+                        updateHistoricalExtremes('spotCvd', spotCvdCumulative);
+                    }
+
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
@@ -481,8 +492,17 @@
             }
 
             function updateSpotCvdCandle(timestamp, price, volume) {
+                let delta;
                 if (lastSpotPrice !== null) {
-                    const delta = price > lastSpotPrice ? volume : -volume;
+                    if (price > lastSpotPrice) {
+                        delta = volume;
+                        lastSpotDirection = 1;
+                    } else if (price < lastSpotPrice) {
+                        delta = -volume;
+                        lastSpotDirection = -1;
+                    } else {
+                        delta = volume * lastSpotDirection;
+                    }
                     spotCvdCumulative += delta;
                     updateHistoricalExtremes('spotCvd', spotCvdCumulative);
                 }
