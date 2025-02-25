@@ -144,7 +144,7 @@
 
             const formatDollar = (btcValue) => {
                 const actualBtc = btcValue / LIQ_SENSITIVITY;
-                const dollarValue = Math.round(actualBtc * lastBtcPrice / 10000) * 10000;
+                const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000; // Changed to 1K rounding
                 return '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
             };
 
@@ -208,8 +208,8 @@
             function drawMeter(ctx, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
-                const barHeight = height * 0.35; // Thinner bar to fit larger font
-                const y = height * 0.75 - barHeight / 2; // Lowered to accommodate text
+                const barHeight = height * 0.35;
+                const y = height * 0.75 - barHeight / 2;
                 const meterWidth = width;
                 const centerX = width / 2;
 
@@ -225,11 +225,11 @@
                 ctx.lineTo(centerX, y + barHeight);
                 ctx.stroke();
 
-                // Calculate bar width
-                const range = Math.max(Math.abs(min), Math.abs(max));
-                if (range === 0) return; // Avoid division by zero
-                const normalizedValue = value / range;
-                const barWidth = (meterWidth / 2) * Math.abs(normalizedValue);
+                // Calculate bar width based on historical min/max
+                const absMax = Math.max(Math.abs(max), Math.abs(min)); // Largest absolute value seen
+                if (absMax === 0) return; // Avoid division by zero
+                const normalizedValue = value / absMax; // Scale relative to historical max/min
+                const barWidth = (meterWidth / 2) * Math.min(Math.abs(normalizedValue), 1); // Cap at 100%
 
                 // Draw meter bar
                 ctx.fillStyle = value >= 0 ? '#00ffff' : '#ff5555';
@@ -245,10 +245,10 @@
 
                 // Draw label with dollar value
                 ctx.fillStyle = '#D3D3D3';
-                ctx.font = '14px Arial'; // Larger font size
+                ctx.font = '14px Arial';
                 ctx.textAlign = 'center';
-                const text = `${label}: ${dollarValue}`;
-                ctx.fillText(text, width / 2, y - 6); // Adjusted for larger font
+                ctx.fillText(label, width / 2, y - 14);
+                ctx.fillText(dollarValue, width / 2, y - 2);
             }
 
             function updateMeterSizes() {
@@ -267,7 +267,7 @@
 
                 drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
                 drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
-                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Long LIQ | Short LIQ', `${formatDollar(longPressure)} | ${formatDollar(shortPressure)}`);
+                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Long LIQ  /  Short LIQ', `${formatDollar(longPressure)}  /  ${formatDollar(shortPressure)}`);
             }
 
             function updateHistoricalExtremes(type, value) {
@@ -444,7 +444,8 @@
                 'Bybit'
             );
 
-            updateMeterSizes(); // Draw meters immediately
+            priceChart.timeScale().fitContent();
+            updateMeterSizes();
 
             const historicalSuccess = await fetchHistoricalPriceData();
             if (!historicalSuccess) {
