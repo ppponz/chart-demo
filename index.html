@@ -152,7 +152,7 @@
                 oiCanvas: document.getElementById('oi-canvas'),
                 liqCanvas: document.getElementById('liq-canvas'),
                 loadingOverlay: document.getElementById('loading-overlay'),
-                cvdData: document.getElementOfId('cvd-data'),
+                cvdData: document.getElementById('cvd-data'), // Fixed typo here
                 oiData: document.getElementById('oi-data'),
                 longLiqData: document.getElementById('long-liq-data'),
                 shortLiqData: document.getElementById('short-liq-data'),
@@ -176,6 +176,7 @@
             let cvdMin = 0, cvdMax = 0;
             let oiMin = 0, oiMax = 0;
             let liqMin = 0, liqMax = 0;
+            let titleTimeout = null; // Added missing variable declaration
 
             const cvdCtx = elements.cvdCanvas.getContext('2d');
             const oiCtx = elements.oiCanvas.getContext('2d');
@@ -220,6 +221,8 @@
                 elements.connectionStatus.classList.remove('disconnected');
                 if (!allConnected) elements.connectionStatus.classList.add('disconnected');
             };
+
+            let connectionStatus = { kraken: false, bybit: false, binance: false }; // Moved inside async to ensure scope
 
             function createWebSocket(url, onOpen, onMessage, label) {
                 let ws = new WebSocket(url);
