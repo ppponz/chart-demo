@@ -22,7 +22,7 @@
             height: 100vh; 
         }
         #price-chart { 
-            height: 75vh; /* Increased to 75% since title box is removed */
+            height: 75vh; 
             background-color: #161b22; 
             border-radius: 4px; 
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
@@ -35,6 +35,7 @@
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
             overflow: hidden; 
             position: relative; 
+            width: 100%; /* Ensure it matches container width */
         }
         canvas { 
             width: 100%; 
@@ -56,8 +57,6 @@
             color: #888888; 
             font-size: 1em; 
         }
-        .negative { color: #ff5555; } 
-        .positive { color: #00ffff; } 
     </style>
 </head>
 <body>
@@ -124,8 +123,7 @@
             const debounceTitle = (price) => {
                 clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => {
-                    const title = `BTC: $${price.toFixed(2)} | CVD: ${formatDollar(cvdCumulative)} | OI: ${formatDollar(oiCumulative)} | Long LIQ: ${formatDollar(longPressure)} | Short LIQ: ${formatDollar(shortPressure)}`;
-                    document.title = title;
+                    document.title = `BTC: $${price.toFixed(2)}`; // Simplified title with just BTC price
                 }, TITLE_DELAY);
             };
             const logTradeCount = () => {
@@ -207,17 +205,18 @@
                 wickDownColor: '#888888'
             });
 
-            function drawMeter(ctx, value, min, max, width, height, label) {
+            function drawMeter(ctx, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
-                const centerX = width / 2;
                 const barHeight = height * 0.5;
                 const y = (height - barHeight) / 2;
-                const meterWidth = width * 0.9;
+                const meterWidth = width * 0.95; // Increased width for better fit
+                const leftOffset = width * 0.025; // Shift left by 2.5% of width
+                const centerX = leftOffset + meterWidth / 2;
 
                 // Draw background
                 ctx.fillStyle = '#1c2526';
-                ctx.fillRect(centerX - meterWidth / 2, y, meterWidth, barHeight);
+                ctx.fillRect(leftOffset, y, meterWidth, barHeight);
 
                 // Draw zero line
                 ctx.strokeStyle = '#555555';
@@ -243,13 +242,14 @@
 
                 // Draw border
                 ctx.strokeStyle = '#888888';
-                ctx.strokeRect(centerX - meterWidth / 2, y, meterWidth, barHeight);
+                ctx.strokeRect(leftOffset, y, meterWidth, barHeight);
 
-                // Draw label (now CVD, OI, or Long LIQ/Short LIQ)
+                // Draw label with dollar value
                 ctx.fillStyle = '#D3D3D3';
                 ctx.font = '10px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, centerX, y - 5);
+                const text = `${label}: ${dollarValue}`;
+                ctx.fillText(text, width / 2, y - 5); // Centered horizontally
             }
 
             function updateMeterSizes() {
@@ -266,9 +266,9 @@
                 const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar;
                 const priceRange = lastPriceCandle.high - lastPriceCandle.low;
 
-                drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD');
-                drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI');
-                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'LIQ');
+                drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
+                drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
+                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'LIQ', `${formatDollar(longPressure)} / ${formatDollar(shortPressure)}`);
             }
 
             function updateHistoricalExtremes(type, value) {
@@ -316,7 +316,7 @@
                     priceSeries.setData(historicalData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     updateMeterSizes();
-                    debounceTitle(lastBtcPrice); // Initial title update
+                    debounceTitle(lastBtcPrice);
                     return true;
                 } catch (error) {
                     console.error('Kraken historical fetch failed:', error);
