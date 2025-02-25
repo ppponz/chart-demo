@@ -29,7 +29,7 @@
             overflow: hidden; 
         }
         .meter-wrapper { 
-            height: 40px; /* Reduced from 50px to fit 4 meters */
+            height: 40px; 
             background-color: #161b22; 
             border-radius: 4px; 
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
@@ -111,6 +111,7 @@
             let spotCvdCumulative = 0;
             let spotCvdHistory = [];
             let spotCvdMin = 0, spotCvdMax = 0;
+            let lastSpotPrice = null; // Track last price for delta direction
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -302,7 +303,7 @@
             function drawMeter(ctx, barWidth, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
-                const barHeight = height * 0.28; // Reduced from 0.35 to fit 40px height
+                const barHeight = height * 0.28;
                 const y = height * 0.75 - barHeight / 2;
                 const meterWidth = width;
                 const centerX = width / 2;
@@ -347,9 +348,9 @@
                 ctx.strokeRect(0, y, meterWidth, barHeight);
 
                 ctx.fillStyle = '#D3D3D3';
-                ctx.font = '12px Arial'; // Reduced from 14px to fit smaller height
+                ctx.font = '12px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, width / 2, y - 10); // Adjusted from -14
+                ctx.fillText(label, width / 2, y - 10);
                 ctx.fillText(dollarValue, width / 2, y - 2);
             }
 
@@ -462,6 +463,7 @@
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
+                    lastSpotPrice = lastBtcPrice; // Initialize lastSpotPrice
 
                     priceSeries.setData(historicalData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
@@ -478,11 +480,14 @@
                 }
             }
 
-            function updateSpotCvdCandle(timestamp, value) {
-                spotCvdCumulative += value; // Kraken volume delta (no side info, so raw accumulation)
-                updateHistoricalExtremes('spotCvd', spotCvdCumulative);
+            function updateSpotCvdCandle(timestamp, price, volume) {
+                if (lastSpotPrice !== null) {
+                    const delta = price > lastSpotPrice ? volume : -volume; // Positive if price up, negative if down
+                    spotCvdCumulative += delta;
+                    updateHistoricalExtremes('spotCvd', spotCvdCumulative);
+                }
+                lastSpotPrice = price;
                 updateMeters();
-                debounceTitle(lastBtcPrice);
             }
 
             function updateCvdCandle(timestamp, value) {
@@ -566,14 +571,14 @@
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
                         currentVolume = volume;
-                        updateSpotCvdCandle(timestamp, volume); // Initial volume for new bar
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
                         currentBar.close = price;
                         currentVolume += volume;
-                        updateSpotCvdCandle(timestamp, volume); // Add volume to Spot CVD
                     }
+
+                    updateSpotCvdCandle(timestamp, price, volume); // Update Spot CVD with price direction
 
                     tradeCount++;
                     logTradeCount();
