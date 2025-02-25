@@ -97,8 +97,7 @@
                 charts: {},
                 candles: {},
                 pendingUpdates: { price: false, cvd: false, oi: false, liq: false },
-                lastUpdateTime: 0,
-                lastSyncTime: 0
+                lastUpdateTime: 0
             };
 
             // Utility Functions
@@ -157,10 +156,10 @@
                 state.charts.cvd = createChart(DOM.cvdChart, 100, '');
                 state.charts.oi = createChart(DOM.oiChart, 100, '');
                 state.charts.liq = createChart(DOM.liqChart, 100, '');
+            };
+
+            const enableChartSync = () => {
                 state.charts.price.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
-                    const now = Date.now();
-                    if (now - state.lastSyncTime < 500) return; // Debounce sync by 500ms
-                    state.lastSyncTime = now;
                     const range = state.charts.price.chart.timeScale().getVisibleRange();
                     if (range && state.candles.price && state.candles.price.length > 1 && state.candles.price.every(utils.isValidBar)) {
                         console.log('Syncing time range:', range);
@@ -283,6 +282,9 @@
                             }, 500);
                         }
                         console.log('Historical data set:', state.candles.price);
+
+                        // Enable chart sync after all data is set
+                        enableChartSync();
                         return true;
                     } catch (error) {
                         utils.handleError('Historical fetch failed', error);
@@ -304,6 +306,9 @@
                         state.candles.priceCurrent = { ...state.candles.price[0] };
                         await dataFetcher.fetchInitialOi();
                         console.log('Fallback data set:', state.candles.price);
+
+                        // Enable chart sync after fallback setup
+                        enableChartSync();
                         return false;
                     }
                 },
