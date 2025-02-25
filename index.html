@@ -87,7 +87,6 @@
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
             const PRESSURE_DECAY = 0.95;
-            const METER_SENSITIVITY = 10; // Adjusted for 2% delta to be ~20% bar width
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -226,11 +225,13 @@
                 ctx.lineTo(centerX, y + barHeight);
                 ctx.stroke();
 
-                // Calculate bar width with high sensitivity to small changes
-                const absMax = Math.max(Math.abs(max), Math.abs(min)); // Largest historical absolute value
-                if (absMax === 0) return; // Avoid division by zero
-                const sensitivityRange = absMax / METER_SENSITIVITY; // Smaller range for sensitivity
-                const normalizedValue = value / sensitivityRange; // Scale against smaller range
+                // Calculate bar width relative to historical max or min
+                let normalizedValue;
+                if (value >= 0) {
+                    normalizedValue = max > 0 ? value / max : 0; // Scale against max if positive
+                } else {
+                    normalizedValue = min < 0 ? value / min : 0; // Scale against min if negative
+                }
                 const barWidth = (meterWidth / 2) * Math.min(Math.abs(normalizedValue), 1); // Cap at 100%
 
                 // Draw meter bar
@@ -305,7 +306,7 @@
                     historicalData = bars.map(bar => ({
                         time: parseInt(bar[0], 10),
                         open: parseFloat(bar[1]),
-                        high: ParseFloat(bar[2]),
+                        high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
                         close: parseFloat(bar[4])
                     })).filter(isValidBar);
