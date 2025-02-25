@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, CVD, and OI</title>
+    <title>BTC Price, Liquidations, CVD, and OI with VWMA Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -90,6 +90,9 @@
             const RANGE_PADDING = 1.1;
             const ANIMATION_DURATION = 300;
 
+            const BEAR_COLOR = '#FF4500';
+            const BULL_COLOR = '#00A0A0';
+
             const elements = {
                 priceChart: document.getElementById('price-chart'),
                 cvdCanvas: document.getElementById('cvd-canvas'),
@@ -100,8 +103,8 @@
 
             let historicalData = [];
             let currentBar = null;
-            let volumeData = []; // Preserved for later use
-            let currentVolume = 0; // Preserved for later use
+            let volumeData = [];
+            let currentVolume = 0;
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -194,6 +197,63 @@
                 return ws;
             }
 
+            // EMA Calculation
+            function calculateEMA(data, period) {
+                const k = 2 / (period + 1);
+                let ema = [];
+                ema[0] = data[0];
+                for (let i = 1; i < data.length; i++) {
+                    ema[i] = data[i] * k + ema[i - 1] * (1 - k);
+                }
+                return ema;
+            }
+
+            // Standard Deviation Calculation
+            function calculateStDev(data, period) {
+                let stDev = [];
+                for (let i = 0; i < data.length; i++) {
+                    if (i < period - 1) {
+                        stDev[i] = 0; // Not enough data
+                    } else {
+                        const slice = data.slice(i - period + 1, i + 1);
+                        const mean = slice.reduce((sum, val) => sum + val, 0) / period;
+                        const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / period;
+                        stDev[i] = Math.sqrt(variance);
+                    }
+                }
+                return stDev;
+            }
+
+            // VWMA Bands Calculation
+            function calculateVWMABands() {
+                const highPrices = historicalData.map(bar => bar.high);
+                const lowPrices = historicalData.map(bar => bar.low);
+                const volumes = volumeData.map(bar => bar.value);
+
+                const priceVolumeHigh = highPrices.map((price, i) => price * volumes[i]);
+                const priceVolumeLow = lowPrices.map((price, i) => price * volumes[i]);
+
+                const volumeEma = calculateEMA(volumes, 180);
+                const priceVolumeHighEma = calculateEMA(priceVolumeHigh, 180);
+                const priceVolumeLowEma = calculateEMA(priceVolumeLow, 180);
+
+                const ma1 = priceVolumeHighEma.map((pv, i) => pv / volumeEma[i]);
+                const ma2 = priceVolumeLowEma.map((pv, i) => pv / volumeEma[i]);
+
+                const p1 = highPrices.map((high, i) => (high - ma1[i]) / ma1[i]);
+                const p2 = lowPrices.map((low, i) => (low - ma2[i]) / ma2[i]);
+
+                const sd10 = calculateStDev(p1, 1440);
+                const sd20 = calculateStDev(p2, 1440);
+
+                const t1 = ma1.map((ma, i) => ma * (1 + sd10[i] * 2.25));
+                const t2 = ma1.map((ma, i) => ma * (1 + sd10[i] * 4.25));
+                const b1 = ma2.map((ma, i) => ma * (1 - sd20[i] * 2.25));
+                const b2 = ma2.map((ma, i) => ma * (1 - sd20[i] * 4.25));
+
+                return { t1, t2, b1, b2 };
+            }
+
             const priceChart = LightweightCharts.createChart(elements.priceChart, {
                 width: elements.priceChart.offsetWidth,
                 height: elements.priceChart.offsetHeight,
@@ -210,6 +270,12 @@
                 wickUpColor: '#888888',
                 wickDownColor: '#888888'
             });
+
+            // Add Band Series
+            const t1Series = priceChart.addLineSeries({ color: BEAR_COLOR, lineWidth: 1 });
+            const t2Series = priceChart.addLineSeries({ color: BEAR_COLOR, lineWidth: 2 });
+            const b1Series = priceChart.addLineSeries({ color: BULL_COLOR, lineWidth: 1 });
+            const b2Series = priceChart.addLineSeries({ color: BULL_COLOR, lineWidth: 2 });
 
             function animateBar(ctx, currentWidth, targetWidth, value, min, max, width, height, label, dollarValue, callback) {
                 const startTime = performance.now();
@@ -322,6 +388,22 @@
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
 
+            function updateBands() {
+                const bands = calculateVWMABands();
+                const bandData = historicalData.map((bar, i) => ({
+                    time: bar.time,
+                    t1: bands.t1[i],
+                    t2: bands.t2[i],
+                    b1: bands.b1[i],
+                    b2: bands.b2[i]
+                }));
+
+                t1Series.setData(bandData.map(d => ({ time: d.time, value: d.t1 })));
+                t2Series.setData(bandData.map(d => ({ time: d.time, value: d.t2 })));
+                b1Series.setData(bandData.map(d => ({ time: d.time, value: d.b1 })));
+                b2Series.setData(bandData.map(d => ({ time: d.time, value: d.b2 })));
+            }
+
             function updateHistoricalExtremes(type, value) {
                 if (type === 'cvd') {
                     cvdHistory.push(value);
@@ -358,12 +440,11 @@
                         high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
                         close: parseFloat(bar[4])
-                        // Volume (bar[5]) not added to historicalData but kept in volumeData
                     })).filter(isValidBar);
 
                     volumeData = bars.map(bar => ({
                         time: parseInt(bar[0], 10),
-                        value: parseFloat(bar[5]) // Preserved for later use
+                        value: parseFloat(bar[5])
                     }));
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
@@ -374,6 +455,7 @@
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     currentVolume = 0;
                     updateMeterSizes();
+                    updateBands(); // Initial band calculation
                     debounceTitle(lastBtcPrice);
                     return true;
                 } catch (error) {
@@ -451,15 +533,16 @@
 
                     const trade = data[1][0];
                     const price = parseFloat(trade[0]);
-                    const volume = parseFloat(trade[1]); // Preserved for later use
+                    const volume = parseFloat(trade[1]);
                     const timestamp = Math.floor(parseFloat(trade[2]));
                     const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
 
                     if (!currentBar || currentBar.time !== barTime) {
                         if (currentBar && isValidBar(currentBar)) {
                             historicalData.push(currentBar);
-                            volumeData.push({ time: currentBar.time, value: currentVolume }); // Preserved for later use
+                            volumeData.push({ time: currentBar.time, value: currentVolume });
                             priceSeries.update(currentBar);
+                            updateBands(); // Update bands with new bar
                             updateMeters();
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
@@ -475,6 +558,7 @@
                     logTradeCount();
                     if (isValidBar(currentBar)) {
                         priceSeries.update(currentBar);
+                        updateBands(); // Update bands with current bar
                         lastBtcPrice = currentBar.close;
                         debounceTitle(lastBtcPrice);
                     }
@@ -515,11 +599,12 @@
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                volumeData = [{ time: barTime, value: 0 }]; // Preserved for later use
+                volumeData = [{ time: barTime, value: 0 }];
                 priceSeries.setData(historicalData);
                 currentBar = { ...historicalData[0] };
                 currentVolume = 0;
                 updateMeterSizes();
+                updateBands();
                 debounceTitle(0);
             }
 
