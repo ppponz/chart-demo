@@ -87,6 +87,8 @@
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
             const PRESSURE_DECAY = 0.95;
+            const RANGE_PADDING = 1.1; // 10% padding beyond max/min
+            const ANIMATION_DURATION = 300; // ms for bar animation
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -114,6 +116,9 @@
             let oiMin = 0, oiMax = 0;
             let liqMin = 0, liqMax = 0;
             let titleTimeout = null;
+
+            // Store current bar widths for animation
+            let cvdBarWidth = 0, oiBarWidth = 0, liqBarWidth = 0;
 
             const cvdCtx = elements.cvdCanvas.getContext('2d');
             const oiCtx = elements.oiCanvas.getContext('2d');
@@ -144,7 +149,7 @@
 
             const formatDollar = (btcValue) => {
                 const actualBtc = btcValue / LIQ_SENSITIVITY;
-                const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000; // 1K rounding
+                const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000;
                 return '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
             };
 
@@ -205,7 +210,29 @@
                 wickDownColor: '#888888'
             });
 
-            function drawMeter(ctx, value, min, max, width, height, label, dollarValue) {
+            function animateBar(ctx, currentWidth, targetWidth, value, min, max, width, height, label, dollarValue, callback) {
+                const startTime = performance.now();
+                const startWidth = currentWidth;
+
+                function step(timestamp) {
+                    const elapsed = timestamp - startTime;
+                    const progress = Math.min(elapsed / ANIMATION_DURATION, 1);
+                    const easedProgress = 1 - Math.pow(1 - progress, 2); // Ease-out quadratic
+                    const newWidth = startWidth + (targetWidth - startWidth) * easedProgress;
+
+                    drawMeter(ctx, newWidth, value, min, max, width, height, label, dollarValue);
+
+                    if (progress < 1) {
+                        requestAnimationFrame(step);
+                    } else {
+                        callback(newWidth);
+                    }
+                }
+
+                requestAnimationFrame(step);
+            }
+
+            function drawMeter(ctx, barWidth, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
                 const barHeight = height * 0.35;
@@ -217,25 +244,36 @@
                 ctx.fillStyle = '#1c2526';
                 ctx.fillRect(0, y, meterWidth, barHeight);
 
+                // Draw max/min markers
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 1;
+                const paddedMax = max * RANGE_PADDING;
+                const paddedMin = min * RANGE_PADDING;
+                if (max > 0) {
+                    const maxX = centerX + (meterWidth / 2) * (max / paddedMax);
+                    ctx.beginPath();
+                    ctx.moveTo(maxX, y);
+                    ctx.lineTo(maxX, y + barHeight);
+                    ctx.stroke();
+                }
+                if (min < 0) {
+                    const minX = centerX - (meterWidth / 2) * (-min / -paddedMin);
+                    ctx.beginPath();
+                    ctx.moveTo(minX, y);
+                    ctx.lineTo(minX, y + barHeight);
+                    ctx.stroke();
+                }
+
                 // Draw zero line
                 ctx.strokeStyle = '#555555';
-                ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(centerX, y);
                 ctx.lineTo(centerX, y + barHeight);
                 ctx.stroke();
 
-                // Calculate bar width relative to historical max or min
-                let normalizedValue;
-                if (value >= 0) {
-                    normalizedValue = max > 0 ? value / max : 0; // Scale against max if positive
-                } else {
-                    normalizedValue = min < 0 ? value / min : 0; // Scale against min if negative
-                }
-                const barWidth = (meterWidth / 2) * Math.min(Math.abs(normalizedValue), 1); // Cap at 100%
-
-                // Draw meter bar
-                ctx.fillStyle = value >= 0 ? '#00ffff' : '#ff5555';
+                // Draw meter bar with dynamic color intensity
+                const intensity = Math.min(Math.abs(normalizedValue(value, min, max)), 1);
+                ctx.fillStyle = value >= 0 ? `rgba(0, 255, 255, ${0.5 + intensity * 0.5})` : `rgba(255, 85, 85, ${0.5 + intensity * 0.5})`;
                 if (value >= 0) {
                     ctx.fillRect(centerX, y, barWidth, barHeight);
                 } else {
@@ -254,6 +292,14 @@
                 ctx.fillText(dollarValue, width / 2, y - 2);
             }
 
+            function normalizedValue(value, min, max) {
+                if (value >= 0) {
+                    return max > 0 ? value / (max * RANGE_PADDING) : 0;
+                } else {
+                    return min < 0 ? value / (min * RANGE_PADDING) : 0;
+                }
+            }
+
             function updateMeterSizes() {
                 elements.cvdCanvas.width = elements.cvdCanvas.offsetWidth;
                 elements.cvdCanvas.height = elements.cvdCanvas.offsetHeight;
@@ -265,9 +311,17 @@
             }
 
             function updateMeters() {
-                drawMeter(cvdCtx, cvdCumulative, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
-                drawMeter(oiCtx, oiCumulative, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
-                drawMeter(liqCtx, longPressure - shortPressure, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`);
+                const cvdValue = cvdCumulative;
+                const oiValue = oiCumulative;
+                const liqValue = longPressure - shortPressure;
+
+                const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax)), 1);
+                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax)), 1);
+                const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax)), 1);
+
+                animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
+                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
+                animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
 
             function updateHistoricalExtremes(type, value) {
