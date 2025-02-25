@@ -80,7 +80,7 @@
             const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
             const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 300;
+            const BAR_INTERVAL = 300; // 5 minutes in seconds
             const MAX_BARS = 2016;
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
@@ -100,6 +100,8 @@
 
             let historicalData = [];
             let currentBar = null;
+            let volumeData = []; // Store volume bars
+            let currentVolume = 0; // Track volume for current bar
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -209,6 +211,14 @@
                 wickDownColor: '#888888'
             });
 
+            // Add Volume Series
+            const volumeSeries = priceChart.addHistogramSeries({
+                color: '#555555', // Gray volume bars
+                priceFormat: { type: 'volume' },
+                priceScaleId: '', // Separate scale from price
+                scaleMargins: { top: 0.8, bottom: 0 } // Position below candlesticks
+            });
+
             function animateBar(ctx, currentWidth, targetWidth, value, min, max, width, height, label, dollarValue, callback) {
                 const startTime = performance.now();
                 const startWidth = currentWidth;
@@ -239,11 +249,9 @@
                 const meterWidth = width;
                 const centerX = width / 2;
 
-                // Draw background
                 ctx.fillStyle = '#1c2526';
                 ctx.fillRect(0, y, meterWidth, barHeight);
 
-                // Draw max/min markers
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
                 ctx.lineWidth = 1;
                 const paddedMax = max * RANGE_PADDING;
@@ -263,14 +271,12 @@
                     ctx.stroke();
                 }
 
-                // Draw zero line
                 ctx.strokeStyle = '#555555';
                 ctx.beginPath();
                 ctx.moveTo(centerX, y);
                 ctx.lineTo(centerX, y + barHeight);
                 ctx.stroke();
 
-                // Draw meter bar with dynamic color intensity
                 const intensity = Math.min(Math.abs(normalizedValue(value, min, max, label)), 1);
                 ctx.fillStyle = value >= 0 ? `rgba(0, 255, 255, ${0.5 + intensity * 0.5})` : `rgba(255, 85, 85, ${0.5 + intensity * 0.5})`;
                 if (value >= 0) {
@@ -279,11 +285,9 @@
                     ctx.fillRect(centerX - barWidth, y, barWidth, barHeight);
                 }
 
-                // Draw border
                 ctx.strokeStyle = '#888888';
                 ctx.strokeRect(0, y, meterWidth, barHeight);
 
-                // Draw label with dollar value
                 ctx.fillStyle = '#D3D3D3';
                 ctx.font = '14px Arial';
                 ctx.textAlign = 'center';
@@ -293,7 +297,7 @@
 
             function normalizedValue(value, min, max, label) {
                 if (label === 'OI') {
-                    return max > 0 ? value / (max * RANGE_PADDING) : 0; // OI is always positive
+                    return max > 0 ? value / (max * RANGE_PADDING) : 0;
                 }
                 if (value >= 0) {
                     return max > 0 ? value / (max * RANGE_PADDING) : 0;
@@ -335,7 +339,7 @@
                 } else if (type === 'oi') {
                     oiHistory.push(value);
                     if (oiHistory.length > MAX_BARS) oiHistory.shift();
-                    oiMin = Math.min(...oiHistory, 0); // OI should not go below 0
+                    oiMin = Math.min(...oiHistory, 0);
                     oiMax = Math.max(...oiHistory);
                 } else if (type === 'liq') {
                     liqHistory.push(value);
@@ -361,15 +365,22 @@
                         open: parseFloat(bar[1]),
                         high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
-                        close: parseFloat(bar[4])
+                        close: parseFloat(bar[4]),
+                        volume: parseFloat(bar[5]) // Historical volume (not used here, but included for completeness)
                     })).filter(isValidBar);
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
                         .sort((a, b) => a.time - b.time);
+                    volumeData = historicalData.map(bar => ({
+                        time: bar.time,
+                        value: bar.volume
+                    }));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
 
                     priceSeries.setData(historicalData);
+                    volumeSeries.setData(volumeData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
+                    currentVolume = 0; // Reset for live updates
                     updateMeterSizes();
                     debounceTitle(lastBtcPrice);
                     return true;
@@ -448,26 +459,32 @@
 
                     const trade = data[1][0];
                     const price = parseFloat(trade[0]);
+                    const volume = parseFloat(trade[1]); // Volume in BTC
                     const timestamp = Math.floor(parseFloat(trade[2]));
                     const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
 
                     if (!currentBar || currentBar.time !== barTime) {
                         if (currentBar && isValidBar(currentBar)) {
                             historicalData.push(currentBar);
+                            volumeData.push({ time: currentBar.time, value: currentVolume });
                             priceSeries.update(currentBar);
+                            volumeSeries.update({ time: currentBar.time, value: currentVolume });
                             updateMeters();
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                        currentVolume = volume; // Start new bar’s volume
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
                         currentBar.close = price;
+                        currentVolume += volume; // Accumulate volume for current bar
                     }
 
                     tradeCount++;
                     logTradeCount();
                     if (isValidBar(currentBar)) {
                         priceSeries.update(currentBar);
+                        volumeSeries.update({ time: currentBar.time, value: currentVolume });
                         lastBtcPrice = currentBar.close;
                         debounceTitle(lastBtcPrice);
                     }
@@ -508,8 +525,11 @@
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                volumeData = [{ time: barTime, value: 0 }];
                 priceSeries.setData(historicalData);
+                volumeSeries.setData(volumeData);
                 currentBar = { ...historicalData[0] };
+                currentVolume = 0;
                 updateMeterSizes();
                 debounceTitle(0);
             }
