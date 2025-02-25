@@ -265,12 +265,9 @@
             }
 
             function updateMeters() {
-                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar || { high: 0, low: 0 };
-                const priceRange = lastPriceCandle.high - lastPriceCandle.low;
-
-                drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
-                drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
-                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Long LIQ  /  Short LIQ', `${formatDollar(longPressure)}  /  ${formatDollar(shortPressure)}`);
+                drawMeter(cvdCtx, cvdCumulative, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
+                drawMeter(oiCtx, oiCumulative, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
+                drawMeter(liqCtx, longPressure - shortPressure, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`);
             }
 
             function updateHistoricalExtremes(type, value) {
