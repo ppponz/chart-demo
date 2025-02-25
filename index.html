@@ -163,7 +163,7 @@
             const formatDollar = (btcValue) => {
                 const actualBtc = btcValue / LIQ_SENSITIVITY;
                 const dollarValue = Math.round(actualBtc * lastBtcPrice / 1000) * 1000;
-                return (btcValue < 0 ? '-' : '') + '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); // Preserve sign
+                return (btcValue < 0 ? '-' : '') + '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
             };
 
             const updateConnectionStatus = () => {
@@ -462,12 +462,12 @@
                     }));
 
                     spotCvdCumulative = 0;
-                    const startIndex = Math.max(0, historicalData.length - 48); // Last 48 bars (4 hours)
+                    const startIndex = Math.max(0, historicalData.length - 12); // Last 12 bars (1 hour)
                     for (let i = startIndex + 1; i < historicalData.length; i++) {
                         const price = historicalData[i].close;
                         const prevPrice = historicalData[i - 1].close;
                         const volume = volumeData[i].value;
-                        const delta = price > prevPrice ? volume : (price < prevPrice ? -volume : 0);
+                        const delta = (price > prevPrice ? volume : (price < prevPrice ? -volume : 0)) * 5;
                         spotCvdCumulative += delta;
                         updateHistoricalExtremes('spotCvd', spotCvdCumulative);
                     }
@@ -496,13 +496,13 @@
                 let delta;
                 if (lastSpotPrice !== null) {
                     if (price > lastSpotPrice) {
-                        delta = volume;
+                        delta = volume * 5;
                         lastSpotDirection = 1;
                     } else if (price < lastSpotPrice) {
-                        delta = -volume;
+                        delta = -volume * 5;
                         lastSpotDirection = -1;
                     } else {
-                        delta = volume * lastSpotDirection;
+                        delta = volume * lastSpotDirection * 5;
                     }
                     spotCvdCumulative += delta;
                     updateHistoricalExtremes('spotCvd', spotCvdCumulative);
