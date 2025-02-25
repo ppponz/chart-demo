@@ -54,7 +54,7 @@
                     binanceOi: 'https://fapi.binance.com/fapi/v1/openInterest'
                 },
                 time: {
-                    historyDays: 0.5, // 12 hours
+                    historyDays: 0.5,
                     barInterval: 30,
                     maxBars: 1440,
                     titleDelay: 1000,
@@ -99,7 +99,7 @@
                 candles: {},
                 pendingUpdates: { price: false, cvd: false, oi: false, liq: false },
                 lastUpdateTime: 0,
-                lastPriceTimestamp: 0 // Track the last timestamp for price series
+                lastPriceTimestamp: 0
             };
 
             // Utility Functions
@@ -201,7 +201,7 @@
             // Data Fetching
             const dataFetcher = {
                 fetchHistorical: async () => {
-                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 60; // Offset by 1 minute to avoid overlap
+                    const startTime = Math.floor(Date.now() / 1000) - (CONFIG.time.historyDays * 24 * 60 * 60) - 60;
                     try {
                         DOM.loadingText.textContent = 'Fetching historical data from Kraken...';
                         console.log('Fetching historical data from Kraken...');
@@ -373,9 +373,9 @@
                 let series = state.charts[type].series;
 
                 if (type === 'price') {
-                    if (barTime <= state.lastPriceTimestamp) {
-                        console.log(`Skipping price update: ${barTime} <= ${state.lastPriceTimestamp}`);
-                        return; // Skip updates with timestamps not strictly greater than the last bar
+                    if (barTime < state.lastPriceTimestamp) {
+                        console.log(`Skipping price update: ${barTime} < ${state.lastPriceTimestamp}`);
+                        return; // Skip updates strictly older than the last bar
                     }
                     if (!current || current.time !== barTime) {
                         if (current && utils.isValidBar(current)) {
@@ -390,8 +390,10 @@
                     }
                     state.lastBtcPrice = current.close;
                     state.tradeCount++;
-                    state.lastPriceTimestamp = barTime; // Update last timestamp
+                    state.lastPriceTimestamp = barTime;
                     utils.logTradeCount();
+                    state.candles.priceCurrent = current; // Update current before flagging
+                    state.pendingUpdates.price = true;
                 } else if (type === 'cvd') {
                     if (!current || current.time !== barTime) {
                         if (!current) {
@@ -408,6 +410,8 @@
                     current.high = Math.max(current.high, state.cvdCumulative);
                     current.low = Math.min(current.low, state.cvdCumulative);
                     current.close = state.cvdCumulative;
+                    state.candles.cvdCurrent = current;
+                    state.pendingUpdates.cvd = true;
                 } else if (type === 'oi') {
                     if (state.lastOiValue !== null) state.oiCumulative += value - state.lastOiValue;
                     state.lastOiValue = value;
@@ -422,6 +426,8 @@
                         current.low = Math.min(current.low, state.oiCumulative);
                         current.close = state.oiCumulative;
                     }
+                    state.candles.oiCurrent = current;
+                    state.pendingUpdates.oi = true;
                 } else if (type === 'liq') {
                     const now = Date.now();
                     const timeElapsed = (now - state.lastPressureUpdate) / 30000;
@@ -444,11 +450,11 @@
                     current.high = Math.max(current.high, netPressure);
                     current.low = Math.min(current.low, netPressure);
                     current.close = netPressure;
+                    state.candles.liqCurrent = current;
+                    state.pendingUpdates.liq = true;
                 }
 
-                state.candles[`${type}Current`] = current;
-                state.candles[type] = data;
-                state.pendingUpdates[type] = true;
+                state.candles[`${type}`] = data;
                 requestAnimationFrame(throttleUpdates);
             };
 
@@ -460,24 +466,26 @@
                 if (state.pendingUpdates.price && utils.isValidBar(state.candles.priceCurrent)) {
                     state.charts.price.series.update(state.candles.priceCurrent);
                     setTimeout(() => document.title = `BTC: $${state.lastBtcPrice.toFixed(2)}`, CONFIG.time.titleDelay);
+                    state.pendingUpdates.price = false;
                 }
                 if (state.pendingUpdates.cvd && utils.isValidBar(state.candles.cvdCurrent)) {
                     state.charts.cvd.series.update(state.candles.cvdCurrent);
                     DOM.cvdData.textContent = utils.formatDollar(state.cvdCumulative);
                     utils.updateColor(DOM.cvdData, state.cvdCumulative);
+                    state.pendingUpdates.cvd = false;
                 }
                 if (state.pendingUpdates.oi && utils.isValidBar(state.candles.oiCurrent)) {
                     state.charts.oi.series.update(state.candles.oiCurrent);
                     DOM.oiData.textContent = utils.formatDollar(state.oiCumulative);
                     utils.updateColor(DOM.oiData, state.oiCumulative);
+                    state.pendingUpdates.oi = false;
                 }
                 if (state.pendingUpdates.liq && utils.isValidBar(state.candles.liqCurrent)) {
                     state.charts.liq.series.update(state.candles.liqCurrent);
                     DOM.longLiqData.textContent = utils.formatDollar(state.longPressure);
                     DOM.shortLiqData.textContent = utils.formatDollar(state.shortPressure);
+                    state.pendingUpdates.liq = false;
                 }
-
-                state.pendingUpdates = { price: false, cvd: false, oi: false, liq: false };
             };
 
             // Main Execution
