@@ -266,11 +266,11 @@
                 rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
             });
             const priceSeries = priceChart.addCandlestickSeries({
-                upColor: '#AAAAAA', // Brightened from #888888
-                downColor: '#AAAAAA', // Brightened from #888888
-                borderColor: '#AAAAAA', // Brightened from #888888
-                wickUpColor: '#AAAAAA', // Brightened from #888888
-                wickDownColor: '#AAAAAA' // Brightened from #888888
+                upColor: '#AAAAAA',
+                downColor: '#AAAAAA',
+                borderColor: '#AAAAAA',
+                wickUpColor: '#AAAAAA',
+                wickDownColor: '#AAAAAA'
             });
 
             const vwapSeries = priceChart.addLineSeries({ color: VWAP_COLOR, lineWidth: 1 });
@@ -356,7 +356,7 @@
             }
 
             function normalizedValue(value, min, max, label) {
-                if (label === 'Open Interest') { // Updated from 'OI'
+                if (label === 'Open Interest') {
                     return max > 0 ? value / (max * RANGE_PADDING) : 0;
                 }
                 if (value >= 0) {
@@ -386,12 +386,12 @@
 
                 const spotCvdTargetWidth = (elements.spotCvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(spotCvdValue, spotCvdMin, spotCvdMax, 'Spot CVD')), 1);
                 const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'Perp CVD')), 1);
-                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'Open Interest')), 1); // Updated from 'OI'
+                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'Open Interest')), 1);
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
                 animateBar(spotCvdCtx, spotCvdBarWidth, spotCvdTargetWidth, spotCvdValue, spotCvdMin, spotCvdMax, elements.spotCvdCanvas.width, elements.spotCvdCanvas.height, 'Spot CVD', formatDollar(spotCvdCumulative), (newWidth) => spotCvdBarWidth = newWidth);
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'Perp CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
-                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'Open Interest', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth); // Updated from 'OI'
+                animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'Open Interest', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
             }
 
@@ -461,9 +461,9 @@
                         value: parseFloat(bar[5])
                     }));
 
-                    // Seed Spot CVD with 1 day (288 bars) instead of full history
+                    // Seed Spot CVD with 4 hours (48 bars)
                     spotCvdCumulative = 0;
-                    const startIndex = Math.max(0, historicalData.length - 288); // Last 288 bars (1 day)
+                    const startIndex = Math.max(0, historicalData.length - 48); // Last 48 bars (4 hours)
                     for (let i = startIndex + 1; i < historicalData.length; i++) {
                         const price = historicalData[i].close;
                         const prevPrice = historicalData[i - 1].close;
