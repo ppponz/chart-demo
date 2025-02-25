@@ -35,7 +35,7 @@
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
             overflow: hidden; 
             position: relative; 
-            width: 100%; /* Ensure it matches container width */
+            width: 100%; /* Matches container width */
         }
         canvas { 
             width: 100%; 
@@ -123,7 +123,7 @@
             const debounceTitle = (price) => {
                 clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => {
-                    document.title = `BTC: $${price.toFixed(2)}`; // Simplified title with just BTC price
+                    document.title = `BTC: $${price.toFixed(2)}`;
                 }, TITLE_DELAY);
             };
             const logTradeCount = () => {
@@ -208,15 +208,14 @@
             function drawMeter(ctx, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
-                const barHeight = height * 0.5;
-                const y = (height - barHeight) / 2;
-                const meterWidth = width * 0.95; // Increased width for better fit
-                const leftOffset = width * 0.025; // Shift left by 2.5% of width
-                const centerX = leftOffset + meterWidth / 2;
+                const barHeight = height * 0.55; // Slightly larger bar for visibility
+                const y = height * 0.65 - barHeight / 2; // Adjusted to fit larger text above
+                const meterWidth = width; // Full width to match chart
+                const centerX = width / 2;
 
                 // Draw background
                 ctx.fillStyle = '#1c2526';
-                ctx.fillRect(leftOffset, y, meterWidth, barHeight);
+                ctx.fillRect(0, y, meterWidth, barHeight);
 
                 // Draw zero line
                 ctx.strokeStyle = '#555555';
@@ -242,14 +241,14 @@
 
                 // Draw border
                 ctx.strokeStyle = '#888888';
-                ctx.strokeRect(leftOffset, y, meterWidth, barHeight);
+                ctx.strokeRect(0, y, meterWidth, barHeight);
 
                 // Draw label with dollar value
                 ctx.fillStyle = '#D3D3D3';
-                ctx.font = '10px Arial';
+                ctx.font = '12px Arial'; // Larger font size
                 ctx.textAlign = 'center';
                 const text = `${label}: ${dollarValue}`;
-                ctx.fillText(text, width / 2, y - 5); // Centered horizontally
+                ctx.fillText(text, width / 2, y - 4); // Adjusted position for larger font
             }
 
             function updateMeterSizes() {
@@ -263,7 +262,7 @@
             }
 
             function updateMeters() {
-                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar;
+                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar || { high: 0, low: 0 };
                 const priceRange = lastPriceCandle.high - lastPriceCandle.low;
 
                 drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
@@ -315,7 +314,7 @@
 
                     priceSeries.setData(historicalData);
                     currentBar = { ...historicalData[historicalData.length - 1] };
-                    updateMeterSizes();
+                    updateMeterSizes(); // Draw meters with initial values
                     debounceTitle(lastBtcPrice);
                     return true;
                 } catch (error) {
@@ -444,6 +443,9 @@
                 },
                 'Bybit'
             );
+
+            // Initial meter draw before data loads
+            updateMeterSizes();
 
             const historicalSuccess = await fetchHistoricalPriceData();
             if (!historicalSuccess) {
