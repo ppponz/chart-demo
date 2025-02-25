@@ -1,1 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>BTC Price, Liquidations, CVD, and OI</title>
+    <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow-x: hidden; 
+            font-family: 'Arial', sans-serif; 
+            background-color: #0d1117; 
+            color: #D3D3D3; 
+        }
+        #container { 
+            max-width: 1400px; 
+            margin: 5px auto; 
+            padding: 5px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 5px; 
+            height: 100vh; 
+        }
+        #price-chart { 
+            height: 75vh; 
+            background-color: #161b22; 
+            border-radius: 4px; 
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
+            overflow: hidden; 
+        }
+        .meter-wrapper { 
+            height: 50px; 
+            background-color: #161b22; 
+            border-radius: 4px; 
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
+            overflow: hidden; 
+            position: relative; 
+            width: 100%; 
+        }
+        canvas { 
+            width: 100%; 
+            height: 100%; 
+        }
+        #loading-overlay { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            right: 0; 
+            bottom: 0; 
+            background: rgba(0, 0, 0, 0.8); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 1000; 
+        }
+        #loading-text { 
+            color: #888888; 
+            font-size: 1em; 
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay"><div id="loading-text">Loading historical price data...</div></div>
+    <div id="container">
+        <div id="price-chart"></div>
+        <div id="cvd-meter" class="meter-wrapper"><canvas id="cvd-canvas"></canvas></div>
+        <div id="oi-meter" class="meter-wrapper"><canvas id="oi-canvas"></canvas></div>
+        <div id="liq-meter" class="meter-wrapper"><canvas id="liq-canvas"></canvas></div>
+    </div>
+    <script>
+        (async () => {
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts v4.0.1 failed to load');
+                return;
+            }
+            console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
 
+            const KRAKEN_WS_URL = 'wss://ws.kraken.com';
+            const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
+            const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
+            const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
+            const HISTORY_DAYS = 7;
+            const BAR_INTERVAL = 300;
+            const MAX_BARS = 2016;
+            const TITLE_DELAY = 1000;
+            const OI_POLL_INTERVAL = 1000;
+            const MAX_RECONNECT_DELAY = 16000;
+            const LIQ_SENSITIVITY = 100;
+            const PRESSURE_DECAY = 0.95;
+
+            const elements = {
+                priceChart: document.getElementById('price-chart'),
+                cvdCanvas: document.getElementById('cvd-canvas'),
+                oiCanvas: document.getElementById('oi-canvas'),
+                liqCanvas: document.getElementById('liq-canvas'),
+                loadingOverlay: document.getElementById('loading-overlay')
+            };
+
+            let historicalData = [];
+            let currentBar = null;
+            let cvdCumulative = 0;
+            let oiCumulative = 0;
+            let lastOiValue = null;
+            let longPressure = 0;
+            let shortPressure = 0;
+            let lastPressureUpdate = Date.now();
+            let tradeCount = 0;
+            let lastLogTime = Date.now();
+            let lastBtcPrice = 0;
+            let cvdHistory = [];
+            let oiHistory = [];
+            let liqHistory = [];
+            let cvdMin = 0, cvdMax = 0;
+            let oiMin = 0, oiMax = 0;
+            let liqMin = 0, liqMax = 0;
+            let titleTimeout = null;
+
+            const cvdCtx = elements.cvdCanvas.getContext('2d');
+            const oiCtx = elements.oiCanvas.getContext('2d');
+            const liqCtx = elements.liqCanvas.getContext('2d');
+
+            const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
+            const debounceTitle = (price) => {
+                clearTimeout(titleTimeout);
+                titleTimeout = setTimeout(() => {
+                    document.title = `BTC: $${price.toFixed(2)}`;
+                }, TITLE_DELAY);
+            };
+            const logTradeCount = () => {
+                const now = Date.now();
+                if (now - lastLogTime >= 60000) {
+                    console.log(`Trades per minute: ${(tradeCount / ((now - lastLogTime) / 60000)).toFixed(1)}`);
+                    tradeCount = 0;
+                    lastLogTime = now;
+                }
+            };
+
+            const formatValue = (value) => {
+                const absValue = Math.abs(value);
+                if (absValue >= 1000000) return (value / 1000000).toFixed(2) + 'm';
+                if (absValue >= 1000) return (value / 1000).toFixed(2) + 'k';
+                return value.toFixed(2);
+            };
+
+            const formatDollar = (btcValue) => {
+                const actualBtc = btcValue / LIQ_SENSITIVITY;
+                const dollarValue = Math.round(actualBtc * lastBtcPrice / 10000) * 10000;
+                return '$' + Math.abs(dollarValue).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            };
+
+            const updateConnectionStatus = () => {
+                const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
+                console.log('Connection Status:', allConnected ? 'Connected' : 'Disconnected');
+            };
+
+            let connectionStatus = { kraken: false, bybit: false, binance: false };
+
+            function createWebSocket(url, onOpen, onMessage, label) {
+                let ws = new WebSocket(url);
+                let reconnectDelay = 2000;
+
+                ws.onopen = () => {
+                    console.log(`${label} WebSocket connected`);
+                    connectionStatus[label.toLowerCase()] = true;
+                    updateConnectionStatus();
+                    onOpen(ws);
+                    reconnectDelay = 2000;
+                };
+
+                ws.onmessage = onMessage;
+
+                ws.onerror = (error) => {
+                    console.error(`${label} WebSocket error:`, error);
+                    connectionStatus[label.toLowerCase()] = false;
+                    updateConnectionStatus();
+                };
+
+                ws.onclose = () => {
+                    console.log(`${label} WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+                    connectionStatus[label.toLowerCase()] = false;
+                    updateConnectionStatus();
+                    setTimeout(() => {
+                        ws = createWebSocket(url, onOpen, onMessage, label);
+                    }, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+                };
+
+                return ws;
+            }
+
+            const priceChart = LightweightCharts.createChart(elements.priceChart, {
+                width: elements.priceChart.offsetWidth,
+                height: elements.priceChart.offsetHeight,
+                layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
+                grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#2A2A2A', rightOffset: 5, fixLeftEdge: false },
+                rightPriceScale: { borderColor: '#2A2A2A', autoScale: true }
+            });
+            const priceSeries = priceChart.addCandlestickSeries({
+                upColor: '#888888',
+                downColor: '#888888',
+                borderColor: '#888888',
+                wickUpColor: '#888888',
+                wickDownColor: '#888888'
+            });
+
+            function drawMeter(ctx, value, min, max, width, height, label, dollarValue) {
+                ctx.clearRect(0, 0, width, height);
+
+                const barHeight = height * 0.35; // Thinner bar to fit larger font
+                const y = height * 0.75 - barHeight / 2; // Lowered to accommodate text
+                const meterWidth = width;
+                const centerX = width / 2;
+
+                // Draw background
+                ctx.fillStyle = '#1c2526';
+                ctx.fillRect(0, y, meterWidth, barHeight);
+
+                // Draw zero line
+                ctx.strokeStyle = '#555555';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(centerX, y);
+                ctx.lineTo(centerX, y + barHeight);
+                ctx.stroke();
+
+                // Calculate bar width
+                const range = Math.max(Math.abs(min), Math.abs(max));
+                if (range === 0) return; // Avoid division by zero
+                const normalizedValue = value / range;
+                const barWidth = (meterWidth / 2) * Math.abs(normalizedValue);
+
+                // Draw meter bar
+                ctx.fillStyle = value >= 0 ? '#00ffff' : '#ff5555';
+                if (value >= 0) {
+                    ctx.fillRect(centerX, y, barWidth, barHeight);
+                } else {
+                    ctx.fillRect(centerX - barWidth, y, barWidth, barHeight);
+                }
+
+                // Draw border
+                ctx.strokeStyle = '#888888';
+                ctx.strokeRect(0, y, meterWidth, barHeight);
+
+                // Draw label with dollar value
+                ctx.fillStyle = '#D3D3D3';
+                ctx.font = '14px Arial'; // Larger font size
+                ctx.textAlign = 'center';
+                const text = `${label}: ${dollarValue}`;
+                ctx.fillText(text, width / 2, y - 6); // Adjusted for larger font
+            }
+
+            function updateMeterSizes() {
+                elements.cvdCanvas.width = elements.cvdCanvas.offsetWidth;
+                elements.cvdCanvas.height = elements.cvdCanvas.offsetHeight;
+                elements.oiCanvas.width = elements.oiCanvas.offsetWidth;
+                elements.oiCanvas.height = elements.oiCanvas.offsetHeight;
+                elements.liqCanvas.width = elements.liqCanvas.offsetWidth;
+                elements.liqCanvas.height = elements.liqCanvas.offsetHeight;
+                updateMeters();
+            }
+
+            function updateMeters() {
+                const lastPriceCandle = historicalData[historicalData.length - 2] || currentBar || { high: 0, low: 0 };
+                const priceRange = lastPriceCandle.high - lastPriceCandle.low;
+
+                drawMeter(cvdCtx, cvdCumulative * priceRange, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative));
+                drawMeter(oiCtx, oiCumulative * priceRange, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative));
+                drawMeter(liqCtx, (longPressure - shortPressure) * priceRange, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Long LIQ | Short LIQ', `${formatDollar(longPressure)} | ${formatDollar(shortPressure)}`);
+            }
+
+            function updateHistoricalExtremes(type, value) {
+                if (type === 'cvd') {
+                    cvdHistory.push(value);
+                    if (cvdHistory.length > MAX_BARS) cvdHistory.shift();
+                    cvdMin = Math.min(...cvdHistory);
+                    cvdMax = Math.max(...cvdHistory);
+                } else if (type === 'oi') {
+                    oiHistory.push(value);
+                    if (oiHistory.length > MAX_BARS) oiHistory.shift();
+                    oiMin = Math.min(...oiHistory);
+                    oiMax = Math.max(...oiHistory);
+                } else if (type === 'liq') {
+                    liqHistory.push(value);
+                    if (liqHistory.length > MAX_BARS) liqHistory.shift();
+                    liqMin = Math.min(...liqHistory);
+                    liqMax = Math.max(...liqHistory);
+                }
+            }
+
+            async function fetchHistoricalPriceData() {
+                const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
+                try {
+                    const response = await fetch(`${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=5&since=${startTime}`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+
+                    if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
+                    const bars = data.result['XXBTZUSD'] || [];
+                    if (!bars.length) throw new Error('No bars returned');
+
+                    historicalData = bars.map(bar => ({
+                        time: parseInt(bar[0], 10),
+                        open: parseFloat(bar[1]),
+                        high: parseFloat(bar[2]),
+                        low: parseFloat(bar[3]),
+                        close: parseFloat(bar[4])
+                    })).filter(isValidBar);
+
+                    historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
+                        .sort((a, b) => a.time - b.time);
+                    lastBtcPrice = historicalData[historicalData.length - 1].close;
+
+                    priceSeries.setData(historicalData);
+                    currentBar = { ...historicalData[historicalData.length - 1] };
+                    updateMeterSizes();
+                    debounceTitle(lastBtcPrice);
+                    return true;
+                } catch (error) {
+                    console.error('Kraken historical fetch failed:', error);
+                    connectionStatus.kraken = false;
+                    updateConnectionStatus();
+                    return false;
+                }
+            }
+
+            function updateCvdCandle(timestamp, value) {
+                cvdCumulative += value;
+                updateHistoricalExtremes('cvd', cvdCumulative);
+                updateMeters();
+                debounceTitle(lastBtcPrice);
+            }
+
+            function updateOiCandle(timestamp, value) {
+                if (lastOiValue !== null) {
+                    const delta = value - lastOiValue;
+                    oiCumulative += delta;
+                }
+                lastOiValue = value;
+                updateHistoricalExtremes('oi', oiCumulative);
+                updateMeters();
+                debounceTitle(lastBtcPrice);
+            }
+
+            function updateLiqCandle(timestamp, value, side) {
+                const now = Date.now();
+                const timeElapsed = (now - lastPressureUpdate) / 60000;
+                lastPressureUpdate = now;
+
+                longPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
+                shortPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
+
+                const adjustedValue = value * LIQ_SENSITIVITY;
+                if (side === 'Buy') {
+                    longPressure += adjustedValue;
+                } else if (side === 'Sell') {
+                    shortPressure += adjustedValue;
+                }
+
+                const netPressure = longPressure - shortPressure;
+                updateHistoricalExtremes('liq', netPressure);
+                updateMeters();
+                debounceTitle(lastBtcPrice);
+            }
+
+            async function fetchBinanceOpenInterestLive() {
+                try {
+                    const response = await fetch(`${BINANCE_OI_URL}?symbol=BTCUSDT`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    const now = Math.floor(Date.now() / 1000);
+                    const value = parseFloat(data.openInterest);
+                    if (Number.isFinite(value)) {
+                        connectionStatus.binance = true;
+                        updateConnectionStatus();
+                        updateOiCandle(now, value);
+                    }
+                } catch (error) {
+                    console.error('Binance live OI fetch failed:', error);
+                    connectionStatus.binance = false;
+                    updateConnectionStatus();
+                }
+            }
+
+            const krakenWs = createWebSocket(
+                KRAKEN_WS_URL,
+                (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
+                (event) => {
+                    const data = JSON.parse(event.data);
+                    if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') return;
+
+                    const trade = data[1][0];
+                    const price = parseFloat(trade[0]);
+                    const timestamp = Math.floor(parseFloat(trade[2]));
+                    const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
+
+                    if (!currentBar || currentBar.time !== barTime) {
+                        if (currentBar && isValidBar(currentBar)) {
+                            historicalData.push(currentBar);
+                            priceSeries.update(currentBar);
+                            updateMeters();
+                        }
+                        currentBar = { time: barTime, open: price, high: price, low: price, close: price };
+                    } else {
+                        currentBar.high = Math.max(currentBar.high, price);
+                        currentBar.low = Math.min(currentBar.low, price);
+                        currentBar.close = price;
+                    }
+
+                    tradeCount++;
+                    logTradeCount();
+                    if (isValidBar(currentBar)) {
+                        priceSeries.update(currentBar);
+                        lastBtcPrice = currentBar.close;
+                        debounceTitle(lastBtcPrice);
+                    }
+                },
+                'Kraken'
+            );
+
+            const bybitWs = createWebSocket(
+                BYBIT_WS_URL,
+                (ws) => ws.send(JSON.stringify({ op: 'subscribe', args: ['publicTrade.BTCUSDT', 'liquidation.BTCUSDT'] })),
+                (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.topic === 'liquidation.BTCUSDT' && data.data) {
+                        const timestamp = Math.floor(parseInt(data.ts) / 1000);
+                        const liqValue = parseFloat(data.data.size || data.data.qty || 0);
+                        const side = data.data.side;
+                        if (Number.isFinite(timestamp) && Number.isFinite(liqValue) && side) {
+                            updateLiqCandle(timestamp, liqValue, side);
+                        }
+                    } else if (data.topic === 'publicTrade.BTCUSDT' && data.data) {
+                        const trade = data.data[0];
+                        const volume = parseFloat(trade.v);
+                        const side = trade.S === 'Buy' ? 1 : -1;
+                        const timestamp = Math.floor(parseInt(trade.T) / 1000);
+                        if (Number.isFinite(volume) && Number.isFinite(timestamp)) {
+                            updateCvdCandle(timestamp, volume * side);
+                        }
+                    }
+                },
+                'Bybit'
+            );
+
+            updateMeterSizes(); // Draw meters immediately
+
+            const historicalSuccess = await fetchHistoricalPriceData();
+            if (!historicalSuccess) {
+                const now = Math.floor(Date.now() / 1000);
+                const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
+                historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                priceSeries.setData(historicalData);
+                currentBar = { ...historicalData[0] };
+                updateMeterSizes();
+                debounceTitle(0);
+            }
+
+            setInterval(fetchBinanceOpenInterestLive, OI_POLL_INTERVAL);
+            elements.loadingOverlay.style.display = 'none';
+            setTimeout(updateConnectionStatus, 5000);
+
+            window.addEventListener('resize', updateMeterSizes);
+            window.addEventListener('beforeunload', () => {
+                krakenWs.close();
+                bybitWs.close();
+            });
+        })();
+    </script>
+</body>
+</html>
