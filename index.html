@@ -467,7 +467,7 @@
                         const price = historicalData[i].close;
                         const prevPrice = historicalData[i - 1].close;
                         const volume = volumeData[i].value;
-                        const delta = (price > prevPrice ? volume : (price < prevPrice ? -volume : 0)) * 5;
+                        const delta = (price > prevPrice ? volume : (price < prevPrice ? -volume : 0)) * 20; // Amplify by 20x
                         spotCvdCumulative += delta;
                         updateHistoricalExtremes('spotCvd', spotCvdCumulative);
                     }
@@ -496,13 +496,13 @@
                 let delta;
                 if (lastSpotPrice !== null) {
                     if (price > lastSpotPrice) {
-                        delta = volume * 5;
+                        delta = volume * 20; // Amplify by 20x
                         lastSpotDirection = 1;
                     } else if (price < lastSpotPrice) {
-                        delta = -volume * 5;
+                        delta = -volume * 20; // Amplify by 20x
                         lastSpotDirection = -1;
                     } else {
-                        delta = volume * lastSpotDirection * 5;
+                        delta = volume * lastSpotDirection * 20; // Amplify by 20x
                     }
                     spotCvdCumulative += delta;
                     updateHistoricalExtremes('spotCvd', spotCvdCumulative);
