@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>BTC Price, Liquidations, CVD, and OI with VWAP Bands</title>
+    <title>BTC Price, Liquidations, CVD, Spot CVD, and OI with VWAP Bands</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { 
@@ -29,7 +29,7 @@
             overflow: hidden; 
         }
         .meter-wrapper { 
-            height: 50px; 
+            height: 40px; /* Reduced from 50px to fit 4 meters */
             background-color: #161b22; 
             border-radius: 4px; 
             box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5); 
@@ -63,6 +63,7 @@
     <div id="loading-overlay"><div id="loading-text">Loading historical price data...</div></div>
     <div id="container">
         <div id="price-chart"></div>
+        <div id="spot-cvd-meter" class="meter-wrapper"><canvas id="spot-cvd-canvas"></canvas></div>
         <div id="cvd-meter" class="meter-wrapper"><canvas id="cvd-canvas"></canvas></div>
         <div id="oi-meter" class="meter-wrapper"><canvas id="oi-canvas"></canvas></div>
         <div id="liq-meter" class="meter-wrapper"><canvas id="liq-canvas"></canvas></div>
@@ -90,12 +91,13 @@
             const RANGE_PADDING = 1.1;
             const ANIMATION_DURATION = 300;
 
-            const VWAP_COLOR = '#FFD700'; // Gold
-            const UPPER_COLOR = '#FF4500'; // Orange
-            const LOWER_COLOR = '#00A0A0'; // Teal
+            const VWAP_COLOR = '#FFD700';
+            const UPPER_COLOR = '#FF4500';
+            const LOWER_COLOR = '#00A0A0';
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
+                spotCvdCanvas: document.getElementById('spot-cvd-canvas'),
                 cvdCanvas: document.getElementById('cvd-canvas'),
                 oiCanvas: document.getElementById('oi-canvas'),
                 liqCanvas: document.getElementById('liq-canvas'),
@@ -106,6 +108,9 @@
             let currentBar = null;
             let volumeData = [];
             let currentVolume = 0;
+            let spotCvdCumulative = 0;
+            let spotCvdHistory = [];
+            let spotCvdMin = 0, spotCvdMax = 0;
             let cvdCumulative = 0;
             let oiCumulative = 0;
             let lastOiValue = null;
@@ -123,8 +128,9 @@
             let liqMin = 0, liqMax = 0;
             let titleTimeout = null;
 
-            let cvdBarWidth = 0, oiBarWidth = 0, liqBarWidth = 0;
+            let spotCvdBarWidth = 0, cvdBarWidth = 0, oiBarWidth = 0, liqBarWidth = 0;
 
+            const spotCvdCtx = elements.spotCvdCanvas.getContext('2d');
             const cvdCtx = elements.cvdCanvas.getContext('2d');
             const oiCtx = elements.oiCanvas.getContext('2d');
             const liqCtx = elements.liqCanvas.getContext('2d');
@@ -209,7 +215,6 @@
                 let dailyVolumeSum = 0;
                 let currentDay = null;
 
-                // VWAP calculation with daily reset
                 for (let i = 0; i < historicalData.length; i++) {
                     const barTime = historicalData[i].time;
                     const day = Math.floor(barTime / 86400);
@@ -223,25 +228,23 @@
                     vwapData[i] = dailyVolumeSum > 0 ? dailyPriceVolumeSum / dailyVolumeSum : prices[i];
                 }
 
-                // SD calculation using high/low deviations over 288 bars (1 day)
                 const highDeviations = highs.map((high, i) => high - vwapData[i]);
                 const lowDeviations = lows.map((low, i) => low - vwapData[i]);
                 let sdData = [];
-                const period = 288; // 1 day of 5-min bars
+                const period = 288;
                 for (let i = 0; i < historicalData.length; i++) {
                     if (i < period - 1) {
                         sdData[i] = 0;
                     } else {
                         const highSlice = highDeviations.slice(i - period + 1, i + 1);
                         const lowSlice = lowDeviations.slice(i - period + 1, i + 1);
-                        const combinedSlice = highSlice.concat(lowSlice); // Double the data points for variance
+                        const combinedSlice = highSlice.concat(lowSlice);
                         const mean = combinedSlice.reduce((sum, val) => sum + val, 0) / combinedSlice.length;
                         const variance = combinedSlice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (combinedSlice.length - 1);
                         sdData[i] = Math.sqrt(variance);
                     }
                 }
 
-                // Bands: VWAP ± 2σ, ± 4σ
                 const vwap = vwapData;
                 const upper1 = vwapData.map((vwap, i) => vwap + 2 * sdData[i]);
                 const upper2 = vwapData.map((vwap, i) => vwap + 4 * sdData[i]);
@@ -299,7 +302,7 @@
             function drawMeter(ctx, barWidth, value, min, max, width, height, label, dollarValue) {
                 ctx.clearRect(0, 0, width, height);
 
-                const barHeight = height * 0.35;
+                const barHeight = height * 0.28; // Reduced from 0.35 to fit 40px height
                 const y = height * 0.75 - barHeight / 2;
                 const meterWidth = width;
                 const centerX = width / 2;
@@ -344,9 +347,9 @@
                 ctx.strokeRect(0, y, meterWidth, barHeight);
 
                 ctx.fillStyle = '#D3D3D3';
-                ctx.font = '14px Arial';
+                ctx.font = '12px Arial'; // Reduced from 14px to fit smaller height
                 ctx.textAlign = 'center';
-                ctx.fillText(label, width / 2, y - 14);
+                ctx.fillText(label, width / 2, y - 10); // Adjusted from -14
                 ctx.fillText(dollarValue, width / 2, y - 2);
             }
 
@@ -362,6 +365,8 @@
             }
 
             function updateMeterSizes() {
+                elements.spotCvdCanvas.width = elements.spotCvdCanvas.offsetWidth;
+                elements.spotCvdCanvas.height = elements.spotCvdCanvas.offsetHeight;
                 elements.cvdCanvas.width = elements.cvdCanvas.offsetWidth;
                 elements.cvdCanvas.height = elements.cvdCanvas.offsetHeight;
                 elements.oiCanvas.width = elements.oiCanvas.offsetWidth;
@@ -372,14 +377,17 @@
             }
 
             function updateMeters() {
+                const spotCvdValue = spotCvdCumulative;
                 const cvdValue = cvdCumulative;
                 const oiValue = oiCumulative;
                 const liqValue = longPressure - shortPressure;
 
+                const spotCvdTargetWidth = (elements.spotCvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(spotCvdValue, spotCvdMin, spotCvdMax, 'Spot CVD')), 1);
                 const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax, 'CVD')), 1);
                 const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'OI')), 1);
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax, 'LIQ')), 1);
 
+                animateBar(spotCvdCtx, spotCvdBarWidth, spotCvdTargetWidth, spotCvdValue, spotCvdMin, spotCvdMax, elements.spotCvdCanvas.width, elements.spotCvdCanvas.height, 'Spot CVD', formatDollar(spotCvdCumulative), (newWidth) => spotCvdBarWidth = newWidth);
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
                 animateBar(oiCtx, oiBarWidth, oiTargetWidth, oiValue, oiMin, oiMax, elements.oiCanvas.width, elements.oiCanvas.height, 'OI', formatDollar(oiCumulative), (newWidth) => oiBarWidth = newWidth);
                 animateBar(liqCtx, liqBarWidth, liqTargetWidth, liqValue, liqMin, liqMax, elements.liqCanvas.width, elements.liqCanvas.height, 'Short LIQ  /  Long LIQ', `${formatDollar(shortPressure)}  /  ${formatDollar(longPressure)}`, (newWidth) => liqBarWidth = newWidth);
@@ -404,7 +412,12 @@
             }
 
             function updateHistoricalExtremes(type, value) {
-                if (type === 'cvd') {
+                if (type === 'spotCvd') {
+                    spotCvdHistory.push(value);
+                    if (spotCvdHistory.length > MAX_BARS) spotCvdHistory.shift();
+                    spotCvdMin = Math.min(...spotCvdHistory);
+                    spotCvdMax = Math.max(...spotCvdHistory);
+                } else if (type === 'cvd') {
                     cvdHistory.push(value);
                     if (cvdHistory.length > MAX_BARS) cvdHistory.shift();
                     cvdMin = Math.min(...cvdHistory);
@@ -463,6 +476,13 @@
                     updateConnectionStatus();
                     return false;
                 }
+            }
+
+            function updateSpotCvdCandle(timestamp, value) {
+                spotCvdCumulative += value; // Kraken volume delta (no side info, so raw accumulation)
+                updateHistoricalExtremes('spotCvd', spotCvdCumulative);
+                updateMeters();
+                debounceTitle(lastBtcPrice);
             }
 
             function updateCvdCandle(timestamp, value) {
@@ -546,11 +566,13 @@
                         }
                         currentBar = { time: barTime, open: price, high: price, low: price, close: price };
                         currentVolume = volume;
+                        updateSpotCvdCandle(timestamp, volume); // Initial volume for new bar
                     } else {
                         currentBar.high = Math.max(currentBar.high, price);
                         currentBar.low = Math.min(currentBar.low, price);
                         currentBar.close = price;
                         currentVolume += volume;
+                        updateSpotCvdCandle(timestamp, volume); // Add volume to Spot CVD
                     }
 
                     tradeCount++;
