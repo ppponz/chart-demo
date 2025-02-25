@@ -128,19 +128,18 @@
             }
             console.log('LightweightCharts v' + LightweightCharts.version() + ' loaded');
 
-            const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws';
+            const KRAKEN_WS_URL = 'wss://ws.kraken.com';
             const BYBIT_WS_URL = 'wss://stream.bybit.com/v5/public/linear';
-            const BINANCE_OHLC_URL = 'https://api.binance.com/api/v3/klines';
+            const KRAKEN_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
             const BINANCE_OI_URL = 'https://fapi.binance.com/fapi/v1/openInterest';
-            const HISTORY_DAYS = 7;
-            const BAR_INTERVAL = 60;
-            const MAX_BARS = 2000; // Reduced to 2000 (was 10080, then 5000)
+            const HISTORY_DAYS = 7; // 1 week (7 days)
+            const BAR_INTERVAL = 60; // 1 minute (60 seconds)
+            const MAX_BARS = 10080; // 7 days of 1-minute bars (7 * 24 * 60)
             const TITLE_DELAY = 1000;
             const OI_POLL_INTERVAL = 1000;
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
-            const PRESSURE_DECAY = 0.99;
-            const UPDATE_THROTTLE = 100; // Throttle updates to 100ms
+            const PRESSURE_DECAY = 0.99; // Adjusted for 1-minute intervals
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -176,23 +175,16 @@
             let isCvdInitialized = false;
             let isLiqInitialized = false;
             let connectionStatus = {
-                binance: false,
+                kraken: false,
                 bybit: false,
-                binanceOi: false
+                binance: false
             };
 
-            const isValidBar = (bar) => bar && 
-                bar.time != null && 
-                Number.isFinite(bar.time) && 
-                ['open', 'high', 'low', 'close'].every(key => 
-                    bar[key] != null && Number.isFinite(bar[key])
-                );
-
+            const isValidBar = (bar) => bar && ['time', 'open', 'high', 'low', 'close'].every(key => Number.isFinite(bar[key]));
             const debounceTitle = (price) => {
                 if (titleTimeout) clearTimeout(titleTimeout);
                 titleTimeout = setTimeout(() => document.title = `BTC: $${price.toFixed(2)}`, TITLE_DELAY);
             };
-
             const logTradeCount = () => {
                 const now = Date.now();
                 if (now - lastLogTime >= 60000) {
@@ -222,7 +214,7 @@
             };
 
             const updateConnectionStatus = () => {
-                const allConnected = connectionStatus.binance && connectionStatus.bybit && connectionStatus.binanceOi;
+                const allConnected = connectionStatus.kraken && connectionStatus.bybit && connectionStatus.binance;
                 elements.connectionStatus.textContent = allConnected ? 'Connected' : 'Disconnected';
                 elements.connectionStatus.classList.remove('disconnected');
                 if (!allConnected) elements.connectionStatus.classList.add('disconnected');
@@ -351,6 +343,16 @@
             });
             liqZeroLine.setData([{ time: 0, value: 0 }]);
 
+            const allCharts = [priceChart, cvdChart, oiChart, liqChart];
+            function syncTimeScales() {
+                const range = priceChart.timeScale().getVisibleRange();
+                if (range) {
+                    cvdChart.timeScale().setVisibleRange(range);
+                    oiChart.timeScale().setVisibleRange(range);
+                    liqChart.timeScale().setVisibleRange(range);
+                }
+            }
+
             async function fetchInitialOpenInterest() {
                 try {
                     const url = `${BINANCE_OI_URL}?symbol=BTCUSDT`;
@@ -370,22 +372,18 @@
                             low: oiCumulative,
                             close: oiCumulative
                         }));
-                        try {
-                            oiSeries.setData(oiCandleData);
-                            oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
-                        } catch (e) {
-                            console.error('OI initialization failed:', e);
-                        }
+                        oiSeries.setData(oiCandleData);
+                        oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                         currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
                         elements.oiData.textContent = formatDollar(oiCumulative);
                         updateColor(elements.oiData, oiCumulative);
-                        connectionStatus.binanceOi = true;
+                        connectionStatus.binance = true;
                         updateConnectionStatus();
                         console.log('Initialized OI with:', oiCandleData[oiCandleData.length - 1]);
                     }
                 } catch (error) {
                     console.error('Initial Binance OI fetch failed:', error);
-                    connectionStatus.binanceOi = false;
+                    connectionStatus.binance = false;
                     updateConnectionStatus();
                     const now = Math.floor(Date.now() / 1000);
                     const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
@@ -396,12 +394,8 @@
                         low: 0,
                         close: 0
                     }));
-                    try {
-                        oiSeries.setData(oiCandleData);
-                        oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
-                    } catch (e) {
-                        console.error('OI fallback initialization failed:', e);
-                    }
+                    oiSeries.setData(oiCandleData);
+                    oiZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     currentOiCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     elements.oiData.textContent = formatDollar(0);
                     updateColor(elements.oiData, 0);
@@ -409,94 +403,77 @@
             }
 
             async function fetchHistoricalPriceData() {
-                const endTime = Math.floor(Date.now() / 1000);
-                const startTime = endTime - (HISTORY_DAYS * 24 * 60 * 60);
+                const startTime = Math.floor(Date.now() / 1000) - (HISTORY_DAYS * 24 * 60 * 60);
                 try {
-                    const url = `${BINANCE_OHLC_URL}?symbol=BTCUSDC&interval=1m&startTime=${startTime * 1000}&endTime=${endTime * 1000}&limit=1000`;
-                    console.log(`Fetching Binance OHLC: ${url}`);
+                    const url = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${startTime}`;
+                    console.log(`Fetching Kraken OHLC: ${url}`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
 
-                    historicalData = data.map(bar => ({
-                        time: Math.floor(parseInt(bar[0]) / 1000),
+                    if (data.error.length > 0) throw new Error(`Kraken error: ${data.error}`);
+                    const bars = data.result['XXBTZUSD'] || [];
+                    if (!bars.length) throw new Error('No bars returned');
+
+                    historicalData = bars.map(bar => ({
+                        time: parseInt(bar[0], 10),
                         open: parseFloat(bar[1]),
                         high: parseFloat(bar[2]),
                         low: parseFloat(bar[3]),
-                        close: parseFloat(bar[4]),
-                        volume: parseFloat(bar[5])
+                        close: parseFloat(bar[4])
                     })).filter(isValidBar);
 
                     console.log(`Fetched ${historicalData.length} valid bars`);
-                    while (historicalData.length < MAX_BARS && historicalData.length > 0) {
+                    if (historicalData.length < MAX_BARS) {
                         const lastTime = historicalData[historicalData.length - 1].time;
-                        const nextUrl = `${BINANCE_OHLC_URL}?symbol=BTCUSDC&interval=1m&startTime=${(lastTime + BAR_INTERVAL) * 1000}&endTime=${endTime * 1000}&limit=1000`;
-                        console.log(`Fetching additional Binance OHLC: ${nextUrl}`);
-                        const nextResponse = await fetch(nextUrl);
-                        if (!nextResponse.ok) break;
-                        const nextData = await nextResponse.json();
-                        const moreBars = nextData.map(bar => ({
-                            time: Math.floor(parseInt(bar[0]) / 1000),
-                            open: parseFloat(bar[1]),
-                            high: parseFloat(bar[2]),
-                            low: parseFloat(bar[3]),
-                            close: parseFloat(bar[4]),
-                            volume: parseFloat(bar[5])
-                        })).filter(isValidBar);
-                        if (moreBars.length === 0) break;
-                        historicalData.push(...moreBars);
+                        const secondUrl = `${KRAKEN_OHLC_URL}?pair=XBTUSD&interval=1&since=${lastTime + BAR_INTERVAL}`;
+                        console.log(`Fetching additional Kraken OHLC: ${secondUrl}`);
+                        const secondResponse = await fetch(secondUrl);
+                        if (secondResponse.ok) {
+                            const secondData = await secondResponse.json();
+                            if (secondData.error.length === 0) {
+                                const moreBars = secondData.result['XXBTZUSD'] || [];
+                                historicalData.push(...moreBars.map(bar => ({
+                                    time: parseInt(bar[0], 10),
+                                    open: parseFloat(bar[1]),
+                                    high: parseFloat(bar[2]),
+                                    low: parseFloat(bar[3]),
+                                    close: parseFloat(bar[4])
+                                })).filter(isValidBar));
+                            }
+                        }
                     }
 
                     historicalData = [...new Map(historicalData.map(bar => [bar.time, bar])).values()]
-                        .sort((a, b) => a.time - b.time)
-                        .slice(-MAX_BARS);
+                        .sort((a, b) => a.time - b.time);
                     console.log(`Total fetched ${historicalData.length} valid bars`, historicalData.slice(0, 5));
                     lastBtcPrice = historicalData[historicalData.length - 1].close;
                     console.log('Setting historical data to chart:', historicalData);
 
-                    try {
-                        priceSeries.setData(historicalData);
-                        liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        liqSeries.setData(liqCandleData);
-                        liqZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
-                        cvdCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
-                        cvdSeries.setData(cvdCandleData);
-                        cvdZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
-                    } catch (e) {
-                        console.error('Historical data set failed:', e);
-                    }
+                    priceSeries.setData(historicalData);
+                    liqCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    liqSeries.setData(liqCandleData);
+                    liqZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
                     currentLiqCandle = { ...liqCandleData[liqCandleData.length - 1] };
                     isLiqInitialized = true;
-                    currentCvdCandle = { ...cvdCandleData[cvdCandleData.length - 1] };
-                    isCvdInitialized = true;
                     await fetchInitialOpenInterest();
+                    cvdCandleData = historicalData.map(bar => ({ ...bar, open: 0, high: 0, low: 0, close: 0 }));
+                    cvdSeries.setData(cvdCandleData);
+                    cvdZeroLine.setData(historicalData.map(bar => ({ time: bar.time, value: 0 })));
+                    isCvdInitialized = true;
                     priceChart.timeScale().scrollToRealTime();
                     currentBar = { ...historicalData[historicalData.length - 1] };
                     console.log('Initialized currentBar from historical:', currentBar);
                     elements.cvdData.textContent = formatDollar(cvdCumulative);
                     elements.longLiqData.textContent = formatDollar(longPressure);
                     elements.shortLiqData.textContent = formatDollar(shortPressure);
-                    connectionStatus.binance = true;
-                    updateConnectionStatus();
                     return true;
                 } catch (error) {
-                    console.error('Binance historical fetch failed:', error);
-                    connectionStatus.binance = false;
+                    console.error('Kraken historical fetch failed:', error);
+                    connectionStatus.kraken = false;
                     updateConnectionStatus();
                     return false;
                 }
-            }
-
-            // Throttling helper
-            function throttle(fn, wait) {
-                let lastCall = 0;
-                return function (...args) {
-                    const now = Date.now();
-                    if (now - lastCall >= wait) {
-                        lastCall = now;
-                        fn(...args);
-                    }
-                };
             }
 
             function updateCvdCandle(timestamp, value) {
@@ -505,24 +482,14 @@
                 if (!isCvdInitialized) {
                     currentCvdCandle = { time: barTime, open: 0, high: 0, low: 0, close: 0 };
                     cvdCandleData = [currentCvdCandle];
-                    try {
-                        console.log('CVD init data:', cvdCandleData);
-                        cvdSeries.setData(cvdCandleData);
-                        cvdZeroLine.setData([{ time: barTime, value: 0 }]);
-                    } catch (e) {
-                        console.error('CVD initialization failed:', e);
-                    }
+                    cvdSeries.setData(cvdCandleData);
+                    cvdZeroLine.setData([{ time: barTime, value: 0 }]);
                     isCvdInitialized = true;
                 } else if (!currentCvdCandle || currentCvdCandle.time !== barTime) {
                     if (currentCvdCandle && isValidBar(currentCvdCandle)) {
-                        cvdCandleData.push({ ...currentCvdCandle });
+                        cvdCandleData.push(currentCvdCandle);
                         if (cvdCandleData.length > MAX_BARS) cvdCandleData = cvdCandleData.slice(-MAX_BARS);
-                        try {
-                            console.log('CVD setData:', cvdCandleData);
-                            cvdSeries.setData(cvdCandleData);
-                        } catch (e) {
-                            console.error('CVD setData failed:', e);
-                        }
+                        cvdSeries.setData(cvdCandleData);
                     }
                     currentCvdCandle = { time: barTime, open: cvdCumulative, high: cvdCumulative, low: cvdCumulative, close: cvdCumulative };
                 }
@@ -533,22 +500,13 @@
                 currentCvdCandle.close = cvdCumulative;
                 
                 if (isValidBar(currentCvdCandle)) {
-                    try {
-                        console.log('CVD update:', { ...currentCvdCandle });
-                        throttledCvdUpdate({ ...currentCvdCandle });
-                        cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                        elements.cvdData.textContent = formatDollar(cvdCumulative);
-                        updateColor(elements.cvdData, cvdCumulative);
-                        console.log('Updated CVD in metrics box:', cvdCumulative);
-                    } catch (e) {
-                        console.error('CVD update failed:', e, currentCvdCandle);
-                    }
-                } else {
-                    console.warn('Skipping invalid CVD bar:', currentCvdCandle);
+                    cvdSeries.update(currentCvdCandle);
+                    cvdZeroLine.setData(cvdCandleData.map(candle => ({ time: candle.time, value: 0 })));
+                    elements.cvdData.textContent = formatDollar(cvdCumulative);
+                    updateColor(elements.cvdData, cvdCumulative);
+                    console.log('Updated CVD in metrics box:', cvdCumulative);
                 }
             }
-
-            const throttledCvdUpdate = throttle((candle) => cvdSeries.update(candle), UPDATE_THROTTLE);
 
             function updateOiCandle(timestamp, value) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
@@ -561,14 +519,9 @@
                 
                 if (!currentOiCandle || currentOiCandle.time !== barTime) {
                     if (currentOiCandle && isValidBar(currentOiCandle)) {
-                        oiCandleData.push({ ...currentOiCandle });
+                        oiCandleData.push(currentOiCandle);
                         if (oiCandleData.length > MAX_BARS) oiCandleData = oiCandleData.slice(-MAX_BARS);
-                        try {
-                            console.log('OI setData:', oiCandleData);
-                            oiSeries.setData(oiCandleData);
-                        } catch (e) {
-                            console.error('OI setData failed:', e);
-                        }
+                        oiSeries.setData(oiCandleData);
                     }
                     currentOiCandle = { time: barTime, open: oiCumulative, high: oiCumulative, low: oiCumulative, close: oiCumulative };
                 } else {
@@ -578,35 +531,29 @@
                 }
                 
                 if (isValidBar(currentOiCandle)) {
-                    try {
-                        console.log('OI update:', { ...currentOiCandle });
-                        throttledOiUpdate({ ...currentOiCandle });
-                        oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                        elements.oiData.textContent = formatDollar(oiCumulative);
-                        updateColor(elements.oiData, oiCumulative);
-                        console.log('Updated OI in metrics box:', oiCumulative);
-                    } catch (e) {
-                        console.error('OI update failed:', e, currentOiCandle);
-                    }
-                } else {
-                    console.warn('Skipping invalid OI bar:', currentOiCandle);
+                    oiSeries.update(currentOiCandle);
+                    oiZeroLine.setData(oiCandleData.map(candle => ({ time: candle.time, value: 0 })));
+                    elements.oiData.textContent = formatDollar(oiCumulative);
+                    updateColor(elements.oiData, oiCumulative);
+                    console.log('Updated OI in metrics box:', oiCumulative);
                 }
             }
-
-            const throttledOiUpdate = throttle((candle) => oiSeries.update(candle), UPDATE_THROTTLE);
 
             function updateLiqCandle(timestamp, value, side, rawData) {
                 const barTime = Math.floor(timestamp / BAR_INTERVAL) * BAR_INTERVAL;
                 console.log('Raw liquidation data:', rawData);
                 const now = Date.now();
-                const timeElapsed = (now - lastPressureUpdate) / 60000;
+                const timeElapsed = (now - lastPressureUpdate) / 60000; // Minutes
                 lastPressureUpdate = now;
 
+                // Apply decay
                 longPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
                 shortPressure *= Math.pow(PRESSURE_DECAY, timeElapsed);
 
                 const adjustedValue = value * LIQ_SENSITIVITY;
                 const delta = adjustedValue;
+                const prevLongPressure = longPressure;
+                const prevShortPressure = shortPressure;
 
                 if (side === 'Buy') {
                     longPressure += delta;
@@ -614,16 +561,16 @@
                     shortPressure += delta;
                 }
 
+                console.log(`LIQ Update - Timestamp: ${timestamp}, BTC: ${value}, Side: ${side}, ` +
+                            `Long Delta: ${side === 'Buy' ? delta : 0}, Short Delta: ${side === 'Sell' ? delta : 0}, ` +
+                            `Prev Long: ${prevLongPressure}, Prev Short: ${prevShortPressure}, ` +
+                            `New Long: ${longPressure}, New Short: ${shortPressure}, Price: $${lastBtcPrice}`);
+
                 if (!currentLiqCandle || currentLiqCandle.time !== barTime) {
                     if (currentLiqCandle && isValidBar(currentLiqCandle)) {
-                        liqCandleData.push({ ...currentLiqCandle });
+                        liqCandleData.push(currentLiqCandle);
                         if (liqCandleData.length > MAX_BARS) liqCandleData = liqCandleData.slice(-MAX_BARS);
-                        try {
-                            console.log('LIQ setData:', liqCandleData);
-                            liqSeries.setData(liqCandleData);
-                        } catch (e) {
-                            console.error('LIQ setData failed:', e);
-                        }
+                        liqSeries.setData(liqCandleData);
                     }
                     currentLiqCandle = { time: barTime, open: longPressure - shortPressure, high: longPressure - shortPressure, low: longPressure - shortPressure, close: longPressure - shortPressure };
                 }
@@ -634,18 +581,12 @@
                 currentLiqCandle.close = netPressure;
 
                 if (isValidBar(currentLiqCandle)) {
-                    try {
-                        console.log('LIQ update:', { ...currentLiqCandle });
-                        liqSeries.update({ ...currentLiqCandle });
-                        liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
-                        elements.longLiqData.textContent = formatDollar(longPressure);
-                        elements.shortLiqData.textContent = formatDollar(shortPressure);
-                        console.log('Updated LIQ in metrics box:', { longPressure, shortPressure });
-                    } catch (e) {
-                        console.error('LIQ update failed:', e, currentLiqCandle);
-                    }
-                } else {
-                    console.warn('Skipping invalid LIQ bar:', currentLiqCandle);
+                    console.log('Updating liquidation candle:', { time: barTime, open: currentLiqCandle.open, high: currentLiqCandle.high, low: currentLiqCandle.low, close: netPressure });
+                    liqSeries.update(currentLiqCandle);
+                    liqZeroLine.setData(liqCandleData.map(candle => ({ time: candle.time, value: 0 })));
+                    elements.longLiqData.textContent = formatDollar(longPressure);
+                    elements.shortLiqData.textContent = formatDollar(shortPressure);
+                    console.log('Updated LIQ in metrics box:', { longPressure, shortPressure });
                 }
             }
 
@@ -656,7 +597,7 @@
                     const response = await fetch(url);
                     if (!response.ok) {
                         console.warn(`OI fetch failed with status: ${response.status}`);
-                        connectionStatus.binanceOi = false;
+                        connectionStatus.binance = false;
                         updateConnectionStatus();
                         return;
                     }
@@ -665,31 +606,31 @@
                     const now = Math.floor(Date.now() / 1000);
                     const value = parseFloat(data.openInterest);
                     if (Number.isFinite(value)) {
-                        connectionStatus.binanceOi = true;
+                        connectionStatus.binance = true;
                         updateConnectionStatus();
                         updateOiCandle(now, value);
                     }
                 } catch (error) {
                     console.error('Binance live OI fetch failed:', error);
-                    connectionStatus.binanceOi = false;
+                    connectionStatus.binance = false;
                     updateConnectionStatus();
                 }
             }
 
-            const binanceWs = createWebSocket(
-                BINANCE_WS_URL,
-                (ws) => ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: ['btcusdc@trade'], id: 1 })),
+            const krakenWs = createWebSocket(
+                KRAKEN_WS_URL,
+                (ws) => ws.send(JSON.stringify({ event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'trade' } })),
                 (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (data.e !== 'trade') return;
-                        console.log('Raw Binance trade:', data);
+                        if (!Array.isArray(data) || data.length < 2 || data[2] !== 'trade') return;
+                        console.log('Raw Kraken trade:', data);
 
-                        const price = parseFloat(data.p);
-                        const timestamp = Math.floor(data.T / 1000);
-
+                        const trade = data[1][0];
+                        const price = parseFloat(trade[0]);
+                        const timestamp = Math.floor(parseFloat(trade[2]));
                         if (!Number.isFinite(price) || !Number.isFinite(timestamp)) {
-                            console.warn('Invalid trade data:', data);
+                            console.warn('Invalid trade data:', trade);
                             return;
                         }
 
@@ -698,11 +639,7 @@
                         if (!currentBar || currentBar.time !== barTime) {
                             if (currentBar && isValidBar(currentBar)) {
                                 console.log('Closing previous bar:', currentBar);
-                                try {
-                                    priceSeries.update(currentBar);
-                                } catch (e) {
-                                    console.error('Price series update failed:', e, currentBar);
-                                }
+                                priceSeries.update(currentBar);
                             }
                             currentBar = { time: barTime, open: price, high: price, low: price, close: price };
                         } else {
@@ -715,25 +652,19 @@
                         tradeCount++;
                         logTradeCount();
                         if (isValidBar(currentBar)) {
-                            try {
-                                priceSeries.update(currentBar);
-                                lastBtcPrice = currentBar.close;
-                                const lastHistoricalTime = historicalData[historicalData.length - 1]?.time || 0;
-                                if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
-                                    priceChart.timeScale().scrollToRealTime();
-                                }
-                                debounceTitle(price);
-                            } catch (e) {
-                                console.error('Price series update failed:', e, currentBar);
+                            priceSeries.update(currentBar);
+                            lastBtcPrice = currentBar.close;
+                            const lastHistoricalTime = historicalData[historicalData.length - 1]?.time || 0;
+                            if (currentBar.time > lastHistoricalTime + BAR_INTERVAL) {
+                                priceChart.timeScale().scrollToRealTime();
                             }
-                        } else {
-                            console.warn('Skipping invalid price bar:', currentBar);
+                            debounceTitle(price);
                         }
                     } catch (error) {
-                        console.error('Binance WebSocket processing error:', error);
+                        console.error('Kraken WebSocket processing error:', error);
                     }
                 },
-                'Binance'
+                'Kraken'
             );
 
             const bybitWs = createWebSocket(
@@ -769,6 +700,8 @@
                             } else {
                                 console.warn('Invalid trade data:', trade);
                             }
+                        } else {
+                            console.log('No liquidation data received yet from Bybit:', data.topic || 'No topic');
                         }
                     } catch (error) {
                         console.error('Bybit WebSocket processing error:', error);
@@ -783,21 +716,12 @@
                 const now = Math.floor(Date.now() / 1000);
                 const barTime = Math.floor(now / BAR_INTERVAL) * BAR_INTERVAL;
                 historicalData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                try {
-                    priceSeries.setData(historicalData);
-                    liqCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                    liqSeries.setData(liqCandleData);
-                    liqZeroLine.setData([{ time: barTime, value: 0 }]);
-                    cvdCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
-                    cvdSeries.setData(cvdCandleData);
-                    cvdZeroLine.setData([{ time: barTime, value: 0 }]);
-                } catch (e) {
-                    console.error('Fallback data set failed:', e);
-                }
+                priceSeries.setData(historicalData);
+                liqCandleData = [{ time: barTime, open: 0, high: 0, low: 0, close: 0 }];
+                liqSeries.setData(liqCandleData);
+                liqZeroLine.setData([{ time: barTime, value: 0 }]);
                 currentLiqCandle = { ...liqCandleData[0] };
                 isLiqInitialized = true;
-                currentCvdCandle = { ...cvdCandleData[0] };
-                isCvdInitialized = true;
                 currentBar = { ...historicalData[0] };
                 await fetchInitialOpenInterest();
                 document.title = 'BTC: $0.00';
@@ -809,7 +733,7 @@
             setTimeout(updateConnectionStatus, 5000);
 
             window.addEventListener('beforeunload', () => {
-                binanceWs.close();
+                krakenWs.close();
                 bybitWs.close();
             });
         })();
