@@ -98,7 +98,7 @@
                 charts: {},
                 candles: {},
                 lastPriceTimestamp: 0,
-                lastCvdTimestamp: 0 // Added for CVD tracking
+                lastCvdTimestamp: 0
             };
 
             // Utility Functions
@@ -141,7 +141,15 @@
                     height,
                     layout: { background: { color: '#161b22' }, textColor: '#D3D3D3', fontSize: 10 },
                     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-                    timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#2A2A2A', rightOffset: 5 },
+                    timeScale: { 
+                        timeVisible: true, 
+                        secondsVisible: true, 
+                        borderColor: '#2A2A2A', 
+                        rightOffset: 5,
+                        lockVisibleTimeRangeOnResize: true, // Lock range on resize
+                        fixLeftEdge: true, // Prevent scrolling left
+                        fixRightEdge: true // Prevent scrolling right
+                    },
                     rightPriceScale: { borderColor: '#2A2A2A', autoScale: true, visible: !!title }
                 });
                 const series = chart.addCandlestickSeries({
@@ -254,7 +262,7 @@
                             }
                             console.log('Filtered historical data:', state.candles.price);
                             state.lastPriceTimestamp = state.candles.price[state.candles.price.length - 1].time;
-                            state.lastCvdTimestamp = state.lastPriceTimestamp; // Sync initial CVD timestamp
+                            state.lastCvdTimestamp = state.lastPriceTimestamp;
                         }
 
                         state.lastBtcPrice = state.candles.price[state.candles.price.length - 1].close || 0;
