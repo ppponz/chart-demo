@@ -87,8 +87,8 @@
             const MAX_RECONNECT_DELAY = 16000;
             const LIQ_SENSITIVITY = 100;
             const PRESSURE_DECAY = 0.95;
-            const RANGE_PADDING = 1.1; // 10% padding beyond max/min
-            const ANIMATION_DURATION = 300; // ms for bar animation
+            const RANGE_PADDING = 1.1;
+            const ANIMATION_DURATION = 300;
 
             const elements = {
                 priceChart: document.getElementById('price-chart'),
@@ -117,7 +117,6 @@
             let liqMin = 0, liqMax = 0;
             let titleTimeout = null;
 
-            // Store current bar widths for animation
             let cvdBarWidth = 0, oiBarWidth = 0, liqBarWidth = 0;
 
             const cvdCtx = elements.cvdCanvas.getContext('2d');
@@ -217,7 +216,7 @@
                 function step(timestamp) {
                     const elapsed = timestamp - startTime;
                     const progress = Math.min(elapsed / ANIMATION_DURATION, 1);
-                    const easedProgress = 1 - Math.pow(1 - progress, 2); // Ease-out quadratic
+                    const easedProgress = 1 - Math.pow(1 - progress, 2);
                     const newWidth = startWidth + (targetWidth - startWidth) * easedProgress;
 
                     drawMeter(ctx, newWidth, value, min, max, width, height, label, dollarValue);
@@ -293,6 +292,9 @@
             }
 
             function normalizedValue(value, min, max) {
+                if (label === 'OI') {
+                    return max > 0 ? value / (max * RANGE_PADDING) : 0; // OI is always positive
+                }
                 if (value >= 0) {
                     return max > 0 ? value / (max * RANGE_PADDING) : 0;
                 } else {
@@ -316,7 +318,7 @@
                 const liqValue = longPressure - shortPressure;
 
                 const cvdTargetWidth = (elements.cvdCanvas.width / 2) * Math.min(Math.abs(normalizedValue(cvdValue, cvdMin, cvdMax)), 1);
-                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax)), 1);
+                const oiTargetWidth = (elements.oiCanvas.width / 2) * Math.min(Math.abs(normalizedValue(oiValue, oiMin, oiMax, 'OI')), 1);
                 const liqTargetWidth = (elements.liqCanvas.width / 2) * Math.min(Math.abs(normalizedValue(liqValue, liqMin, liqMax)), 1);
 
                 animateBar(cvdCtx, cvdBarWidth, cvdTargetWidth, cvdValue, cvdMin, cvdMax, elements.cvdCanvas.width, elements.cvdCanvas.height, 'CVD', formatDollar(cvdCumulative), (newWidth) => cvdBarWidth = newWidth);
@@ -333,7 +335,7 @@
                 } else if (type === 'oi') {
                     oiHistory.push(value);
                     if (oiHistory.length > MAX_BARS) oiHistory.shift();
-                    oiMin = Math.min(...oiHistory);
+                    oiMin = Math.min(...oiHistory, 0); // OI should not go below 0
                     oiMax = Math.max(...oiHistory);
                 } else if (type === 'liq') {
                     liqHistory.push(value);
